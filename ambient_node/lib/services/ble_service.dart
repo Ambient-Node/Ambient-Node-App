@@ -8,7 +8,6 @@ class BleService {
   BluetoothDevice? _device;
   BluetoothCharacteristic? _txChar;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
-  Timer? _pollingTimer; // 페어링 응답 폴링용 타이머
 
   // 필터: 기기 이름 또는 서비스 UUID로 찾기 (필요시 수정)
   final String
@@ -163,7 +162,6 @@ class BleService {
     if (_txChar == null) return;
     try {
       final data = utf8.encode(json.encode(msg));
-      final canWnr = _txChar!.properties.writeWithoutResponse;
       // 항상 writeWithoutResponse 사용 (페어링 불필요)
       await _txChar!.write(data, withoutResponse: true);
       debugPrint('BLE data sent successfully: ${json.encode(msg)}');
@@ -229,15 +227,6 @@ class BleService {
           }
         }
       }
-    });
-
-    // 1초마다 현재 스캔 결과 전달
-    Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_scanSubscription == null) {
-        timer.cancel();
-        return;
-      }
-      // 현재 스캔된 기기 목록을 주기적으로 업데이트
     });
 
     // 스캔된 기기 목록을 스트림으로 전달
@@ -343,7 +332,6 @@ class BleService {
   void dispose() {
     _connectionSubscription?.cancel();
     _scanSubscription?.cancel();
-    _pollingTimer?.cancel(); // 폴링 타이머 정리 (필요시)
     _device?.disconnect();
   }
 }

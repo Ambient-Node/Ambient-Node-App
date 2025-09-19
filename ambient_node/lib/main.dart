@@ -90,23 +90,21 @@ class _MainShellState extends State<MainShell> {
   }
 
   void sendState() {
-    // 연결 상태와 무관하게 항상 전송 (디버깅용)
     debugPrint('sendState called - connected: $connected, powerOn: $powerOn');
 
-    // JSON 데이터 구성 (null 값 제거)
     final Map<String, dynamic> data = {
       'powerOn': powerOn,
       'speed': powerOn ? speed : 0,
       'trackingOn': powerOn ? trackingOn : false,
-      'deviceName': 'FlutterApp', // 기기 이름 추가
-      'timestamp': DateTime.now().millisecondsSinceEpoch, // 타임스탬프 추가
+      'deviceName': 'FlutterApp',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
 
     // selectedFaceId가 null이 아닐 때만 추가
     if (powerOn && selectedFaceId != null) {
       data['selectedFaceId'] = selectedFaceId;
     } else {
-      data['selectedFaceId'] = ""; // null 대신 빈 문자열
+      data['selectedFaceId'] = "";
     }
 
     debugPrint('Sending data: $data');
@@ -115,8 +113,6 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    // build 메서드에서 자동 전송 제거 - 상태 변경 시에만 전송
-
     final screens = [
       DashboardScreen(
         connected: connected,
@@ -130,13 +126,13 @@ class _MainShellState extends State<MainShell> {
         speed: speed,
         setSpeed: (v) {
           setState(() => speed = v);
-          // 속도 변경 시 즉시 전송
+          // 속도 변경 시
           sendState();
         },
         trackingOn: trackingOn,
         setTrackingOn: (v) {
           setState(() => trackingOn = v);
-          // 추적 상태 변경 시 즉시 전송
+          // 추적 상태 변경 시
           sendState();
         },
         openControl: () => setState(() => _index = 1),
