@@ -3,6 +3,7 @@
 // - Dashboard, Face Select & Manual Control, Analytics screens
 // - Mock AI / BLE services; replace with real implementations when available
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:ambient_node/services/ble_service.dart';
@@ -10,6 +11,7 @@ import 'package:ambient_node/services/mock_ai_service.dart';
 import 'package:ambient_node/screens/dashboard_screen.dart';
 import 'package:ambient_node/screens/control_screen.dart';
 import 'package:ambient_node/screens/analytics_screen.dart';
+import 'package:ambient_node/screens/device_selection_screen.dart';
 
 void main() {
   runApp(const CirculatorApp());
@@ -43,6 +45,7 @@ class _MainShellState extends State<MainShell> {
     namePrefix: 'Ambient',
     serviceUuid: Guid('12345678-1234-5678-1234-56789abcdef0'),
     writeCharUuid: Guid('12345678-1234-5678-1234-56789abcdef1'),
+    notifyCharUuid: Guid('12345678-1234-5678-1234-56789abcdef2'),
   );
   final ai = MockAIService();
 
@@ -73,36 +76,69 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> handleConnect() async {
-    await ble.connect();
-    // 연결 상태는 onConnectionStateChanged 콜백에서 처리됨
+    // 기기 선택 화면 열기
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => DeviceSelectionScreen(
+          bleService: ble,
+          onConnectionChanged: (isConnected) {
+            setState(() => connected = isConnected);
+          },
+        ),
+      ),
+    );
   }
 
   void sendState() {
-    // 연결되어 있을 때만 전송
-    if (connected) {
-      ble.send({
-        'powerOn': powerOn,
-        'speed': speed,
-        'trackingOn': trackingOn,
-        'selectedFaceId': selectedFaceId,
-      });
+    // 연결 상태와 무관하게 항상 전송 (디버깅용)
+    debugPrint('sendState called - connected: $connected, powerOn: $powerOn');
+
+    // JSON 데이터 구성 (null 값 제거)
+    final Map<String, dynamic> data = {
+      'powerOn': powerOn,
+      'speed': powerOn ? speed : 0,
+      'trackingOn': powerOn ? trackingOn : false,
+      'deviceName': 'FlutterApp', // 기기 이름 추가
+      'timestamp': DateTime.now().millisecondsSinceEpoch, // 타임스탬프 추가
+    };
+
+    // selectedFaceId가 null이 아닐 때만 추가
+    if (powerOn && selectedFaceId != null) {
+      data['selectedFaceId'] = selectedFaceId;
+    } else {
+      data['selectedFaceId'] = ""; // null 대신 빈 문자열
     }
+
+    debugPrint('Sending data: $data');
+    ble.send(data);
   }
 
   @override
   Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) => sendState());
+    // build 메서드에서 자동 전송 제거 - 상태 변경 시에만 전송
 
     final screens = [
       DashboardScreen(
         connected: connected,
         onConnect: handleConnect,
         powerOn: powerOn,
-        setPowerOn: (v) => setState(() => powerOn = v),
+        setPowerOn: (v) {
+          setState(() => powerOn = v);
+          // 전원 상태 변경 시 즉시 전송
+          sendState();
+        },
         speed: speed,
-        setSpeed: (v) => setState(() => speed = v),
+        setSpeed: (v) {
+          setState(() => speed = v);
+          // 속도 변경 시 즉시 전송
+          sendState();
+        },
         trackingOn: trackingOn,
-        setTrackingOn: (v) => setState(() => trackingOn = v),
+        setTrackingOn: (v) {
+          setState(() => trackingOn = v);
+          // 추적 상태 변경 시 즉시 전송
+          sendState();
+        },
         openControl: () => setState(() => _index = 1),
       ),
       ControlScreen(
