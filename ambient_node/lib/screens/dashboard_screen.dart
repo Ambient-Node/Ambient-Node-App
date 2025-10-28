@@ -1,122 +1,67 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import '../widgets/fan_preview.dart';
-import '../widgets/common_controls.dart';
+import 'package:ambient_node/widgets/fan_dashboard_widget.dart';
 
 class DashboardScreen extends StatelessWidget {
   final bool connected;
-  final FutureOr<void> Function() onConnect;
+  final VoidCallback onConnect;
   final bool powerOn;
-  final void Function(bool) setPowerOn;
+  final Function(bool) setPowerOn;
   final int speed;
-  final void Function(int) setSpeed;
+  final Function(int) setSpeed;
   final bool trackingOn;
-  final void Function(bool) setTrackingOn;
-  final VoidCallback openControl;
+  final Function(bool) setTrackingOn;
+  final VoidCallback openAnalytics;
+  final String deviceName;
+  final String? selectedUserName;
 
-  const DashboardScreen(
-      {super.key,
-      required this.connected,
-      required this.onConnect,
-      required this.powerOn,
-      required this.setPowerOn,
-      required this.speed,
-      required this.setSpeed,
-      required this.trackingOn,
-      required this.setTrackingOn,
-      required this.openControl});
+  const DashboardScreen({
+    super.key,
+    required this.connected,
+    required this.onConnect,
+    required this.powerOn,
+    required this.setPowerOn,
+    required this.speed,
+    required this.setSpeed,
+    required this.trackingOn,
+    required this.setTrackingOn,
+    required this.openAnalytics,
+    this.deviceName = 'Ambient',
+    this.selectedUserName,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Row(children: [
-            const Icon(Icons.air),
-            const SizedBox(width: 8),
-            const Text('Circulator',
-                style: TextStyle(fontWeight: FontWeight.w600))
-          ]),
-          Row(children: [
-            Text(connected ? 'Connected' : 'Offline'),
-            const SizedBox(width: 8),
-            ElevatedButton(
-                onPressed: () => onConnect(), child: const Text('Pair'))
-          ])
-        ]),
-        const SizedBox(height: 16),
-        Center(child: FanPreview(powerOn: powerOn, speed: speed)),
-        const SizedBox(height: 16),
-        Row(children: [
-          Expanded(
-            child: ControlCard(
-              title: '전원',
-              child: Column(
-                children: [
-                  Switch(
-                      value: powerOn,
-                      onChanged: (value) {
-                        setPowerOn(value);
-                        // 전원 상태 변경 시 즉시 전송
-                        if (connected) {
-                          // sendState() 호출을 위해 부모에게 알림
-                          // 이는 main.dart의 setState에서 처리됨
-                        }
-                      }),
-                  if (!powerOn && connected)
-                    Text(
-                      'Bluetooth 연결 유지',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.orange,
-                      ),
-                    ),
-                ],
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F7F8),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: FanDashboardWidget(
+                connected: connected,
+                deviceName: deviceName,
+                selectedUserName: selectedUserName,
+                powerOn: powerOn,
+                setPowerOn: (v) {
+                  if (v && !connected) {
+                    onConnect();
+                  } else {
+                    setPowerOn(v);
+                  }
+                },
+                onConnect: onConnect,
+                speed: speed,
+                setSpeed: (double value) {
+                  setSpeed(value.round());
+                },
+                trackingOn: trackingOn,
+                setTrackingOn: setTrackingOn,
+                openAnalytics: openAnalytics,
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-              child: ControlCard(
-                  title: '풍량',
-                  child: Column(children: [
-                    Slider(
-                        value: speed.toDouble(),
-                        min: 0,
-                        max: 100,
-                        onChanged: (v) => setSpeed(v.toInt())),
-                    Text('$speed%')
-                  ]))),
-          const SizedBox(width: 8),
-          Expanded(
-              child: ControlCard(
-                  title: '얼굴 추적',
-                  child: Switch(value: trackingOn, onChanged: setTrackingOn))),
-        ]),
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(
-              child: ElevatedButton(
-                  onPressed: openControl, child: const Text('얼굴 선택 & 수동 조작'))),
-          const SizedBox(width: 8),
-          Expanded(
-              child: OutlinedButton(
-                  onPressed: () {}, child: const Text('데이터 분석 보기')))
-        ]),
-        const SizedBox(height: 16),
-        GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: 3,
-            children: const [
-              StatTile(title: '오늘 사용', value: '3.2h'),
-              StatTile(title: '얼굴 추적', value: '17회'),
-              StatTile(title: '에너지 절약', value: '18%'),
-              StatTile(title: '연속 가동', value: '1.1h'),
-            ])
-      ]),
+          ],
+        ),
+      ),
     );
   }
 }

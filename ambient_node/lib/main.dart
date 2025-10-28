@@ -1,122 +1,137 @@
-// main.dart
-// Flutter prototype for 'Circulator' app
-// - Dashboard, Face Select & Manual Control, Analytics screens
-// - Mock AI / BLE services; replace with real implementations when available
-
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:ambient_node/services/ble_service.dart';
-import 'package:ambient_node/services/mock_ai_service.dart';
+import 'package:ambient_node/screens/splash_screen.dart';
 import 'package:ambient_node/screens/dashboard_screen.dart';
-import 'package:ambient_node/screens/control_screen.dart';
 import 'package:ambient_node/screens/analytics_screen.dart';
-import 'package:ambient_node/screens/device_selection_screen.dart';
+import 'package:ambient_node/screens/control_screen.dart';
 
-void main() {
-  runApp(const CirculatorApp());
+class AiService {}
+
+class BleService {
+  Future<void> sendJson(Map<String, dynamic> data) async {
+    print('BLE Service: Sending JSON: $data');
+  }
 }
 
-class CirculatorApp extends StatelessWidget {
-  const CirculatorApp({super.key});
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Circulator',
+      debugShowCheckedModeBanner: false,
+      title: 'Ambient Node',
       theme: ThemeData(
-        useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        useMaterial3: true,
       ),
-      home: const MainShell(),
+      home: const SplashWrapper(),
+    );
+  }
+}
+
+class SplashWrapper extends StatefulWidget {
+  const SplashWrapper({super.key});
+
+  @override
+  State<SplashWrapper> createState() => _SplashWrapperState();
+}
+
+class _SplashWrapperState extends State<SplashWrapper> {
+  bool _showMain = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showMain) {
+      return const MainShell();
+    }
+
+    return SplashScreen(
+      onFinish: () {
+        setState(() => _showMain = true);
+      },
     );
   }
 }
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
+
   @override
   State<MainShell> createState() => _MainShellState();
 }
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
-  final ble = BleService(
-    namePrefix: 'Ambient',
-    serviceUuid: Guid('12345678-1234-5678-1234-56789abcdef0'),
-    writeCharUuid: Guid('12345678-1234-5678-1234-56789abcdef1'),
-    notifyCharUuid: Guid('12345678-1234-5678-1234-56789abcdef2'),
-  );
-  final ai = MockAIService();
+  final ble = BleService();
 
-  bool connected = false;
-  bool powerOn = true;
-  int speed = 60;
-  bool trackingOn = true;
-  String? selectedFaceId;
+  // 앱의 핵심 상태 변수
+  bool connected = true;
+  String deviceName = 'Ambient';
+  bool powerOn = false;
+  int speed = 0;
+  bool trackingOn = false;
+  // 사용자 선택 상태 (모든 스크린이 공유)
+  String? selectedUserName;
 
   @override
   void initState() {
     super.initState();
-    ai.start();
-
-    // BLE 연결 상태 모니터링 설정
-    ble.onConnectionStateChanged = (isConnected) {
-      if (mounted) {
-        setState(() => connected = isConnected);
-      }
-    };
   }
 
   @override
   void dispose() {
-    ai.dispose();
-    ble.dispose();
     super.dispose();
   }
 
-  Future<void> handleConnect() async {
-    // 기기 선택 화면 열기
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => DeviceSelectionScreen(
-          bleService: ble,
-          onConnectionChanged: (isConnected) {
-            setState(() => connected = isConnected);
-          },
-        ),
-      ),
-    );
+  // 블루투스 연결 화면을 띄우는 함수
+  void handleConnect() {
+    // Navigator.of(context).push(
+    //   MaterialPageRoute(
+    //     builder: (context) => DeviceSelectionScreen(
+    //       bleService: TestBleService(
+    //         namePrefix: 'Ambient',
+    //         serviceUuid: null,
+    //         writeCharUuid: null,
+    //         notifyCharUuid: null,
+    //       ),
+    //       onDeviceNameChanged: (name) {
+    //         setState(() => deviceName = name);
+    //       },
+    //       onConnectionChanged: (isConnected) {
+    //         setState(() {
+    //           connected = isConnected;
+    //           if (isConnected) {
+    //             powerOn = true;
+    //             _showSnackBar('기기가 연결되었습니다.');
+    //           } else {
+    //             powerOn = false;
+    //             _showSnackBar('기기 연결이 해제되었습니다.');
+    //           }
+    //           sendState();
+    //         });
+    //       },
+    //     ),
+    //   ),
+    // );
   }
 
+  // 현재 상태를 블루투스로 전송하는 함수
   void sendState() {
-    // 연결 상태와 무관하게 항상 전송 (디버깅용)
-    debugPrint('sendState called - connected: $connected, powerOn: $powerOn');
-
-    // JSON 데이터 구성 (null 값 제거)
-    final Map<String, dynamic> data = {
+    if (!connected) return;
+    ble.sendJson({
       'powerOn': powerOn,
       'speed': powerOn ? speed : 0,
       'trackingOn': powerOn ? trackingOn : false,
-      'deviceName': 'FlutterApp', // 기기 이름 추가
-      'timestamp': DateTime.now().millisecondsSinceEpoch, // 타임스탬프 추가
-    };
-
-    // selectedFaceId가 null이 아닐 때만 추가
-    if (powerOn && selectedFaceId != null) {
-      data['selectedFaceId'] = selectedFaceId;
-    } else {
-      data['selectedFaceId'] = ""; // null 대신 빈 문자열
-    }
-
-    debugPrint('Sending data: $data');
-    ble.send(data);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // build 메서드에서 자동 전송 제거 - 상태 변경 시에만 전송
-
     final screens = [
       DashboardScreen(
         connected: connected,
@@ -124,49 +139,122 @@ class _MainShellState extends State<MainShell> {
         powerOn: powerOn,
         setPowerOn: (v) {
           setState(() => powerOn = v);
-          // 전원 상태 변경 시 즉시 전송
           sendState();
         },
         speed: speed,
         setSpeed: (v) {
           setState(() => speed = v);
-          // 속도 변경 시 즉시 전송
           sendState();
         },
         trackingOn: trackingOn,
         setTrackingOn: (v) {
           setState(() => trackingOn = v);
-          // 추적 상태 변경 시 즉시 전송
           sendState();
         },
-        openControl: () => setState(() => _index = 1),
+        openAnalytics: () => setState(() => _index = 2),
+        deviceName: deviceName,
+        selectedUserName: selectedUserName,
       ),
       ControlScreen(
-        ai: ai,
-        trackingOn: trackingOn,
-        setTrackingOn: (v) => setState(() => trackingOn = v),
-        selectedFaceId: selectedFaceId,
-        selectFace: (id) {
-          setState(() => selectedFaceId = id);
-          ai.select(id);
+        connected: connected,
+        deviceName: deviceName,
+        onConnect: handleConnect,
+        selectedUserName: selectedUserName,
+        onUserSelectionChanged: (userName) {
+          setState(() => selectedUserName = userName);
         },
-        manualMove: (vec) => ble.send({
-          'manual': {'x': vec.dx, 'y': vec.dy}
-        }),
       ),
       const AnalyticsScreen(),
     ];
 
     return Scaffold(
-      body: SafeArea(child: IndexedStack(index: _index, children: screens)),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _index,
-        onTap: (i) => setState(() => _index = i),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: '대시보드'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_search), label: '제어'),
-          BottomNavigationBarItem(icon: Icon(Icons.analytics), label: '분석'),
-        ],
+      body: SafeArea(
+        child: IndexedStack(
+          index: _index,
+          children: screens,
+        ),
+      ),
+      bottomNavigationBar: Container(
+        height: 89,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildNavItem(
+              icon: Icons.dashboard_outlined,
+              label: '대시보드',
+              isSelected: _index == 0,
+              onTap: () => setState(() => _index = 0),
+            ),
+            _buildNavItem(
+              icon: Icons.control_camera,
+              label: '제어',
+              isSelected: _index == 1,
+              onTap: () => setState(() => _index = 1),
+            ),
+            _buildNavItem(
+              icon: Icons.analytics_outlined,
+              label: '분석',
+              isSelected: _index == 2,
+              onTap: () => setState(() => _index = 2),
+            ),
+            _buildNavItem(
+              icon: Icons.settings_outlined,
+              label: '설정',
+              isSelected: false,
+              onTap: () {}, // 기능 미구현
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem({
+    required IconData icon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        width: 60,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 24,
+              color: isSelected
+                  ? const Color(0xFF3A90FF)
+                  : const Color(0xFF838799),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isSelected
+                    ? const Color(0xFF3A90FF)
+                    : const Color(0xFF838799),
+                fontSize: 13,
+                fontFamily: 'Sen',
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

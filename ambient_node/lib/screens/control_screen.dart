@@ -1,170 +1,296 @@
 import 'package:flutter/material.dart';
-import '../models/face.dart';
-import '../services/mock_ai_service.dart';
-import '../widgets/joystick.dart';
+import 'package:ambient_node/widgets/app_top_bar.dart';
+import 'package:ambient_node/widgets/remote_control_dpad.dart';
 
 class ControlScreen extends StatefulWidget {
-  final MockAIService ai;
-  final bool trackingOn;
-  final void Function(bool) setTrackingOn;
-  final String? selectedFaceId;
-  final void Function(String?) selectFace;
-  final void Function(Offset) manualMove;
+  final bool connected;
+  final String deviceName;
+  final VoidCallback onConnect;
+  final String? selectedUserName;
+  final Function(String?) onUserSelectionChanged;
 
-  const ControlScreen(
-      {super.key,
-      required this.ai,
-      required this.trackingOn,
-      required this.setTrackingOn,
-      required this.selectedFaceId,
-      required this.selectFace,
-      required this.manualMove});
+  const ControlScreen({
+    super.key,
+    required this.connected,
+    required this.deviceName,
+    required this.onConnect,
+    this.selectedUserName,
+    required this.onUserSelectionChanged,
+  });
 
   @override
   State<ControlScreen> createState() => _ControlScreenState();
 }
 
 class _ControlScreenState extends State<ControlScreen> {
-  List<Face> faces = [];
-  Offset? target;
+  List<UserProfile> users = [];
+  int? selectedUserIndex;
 
-  @override
-  void initState() {
-    super.initState();
-    widget.ai.facesStream.listen((f) => setState(() => faces = f));
-    widget.ai.targetStream.listen((t) => setState(() => target = t));
+  void _addUser() {
+    setState(() {
+      users.add(UserProfile(
+        name: 'User ${users.length + 1}',
+        avatarUrl: 'https://i.pravatar.cc/150?img=${users.length + 1}',
+      ));
+    });
+  }
+
+  void _deleteUser(int index) {
+    setState(() {
+      if (selectedUserIndex == index) {
+        selectedUserIndex = null;
+        widget.onUserSelectionChanged(null);
+      } else if (selectedUserIndex != null && selectedUserIndex! > index) {
+        selectedUserIndex = selectedUserIndex! - 1;
+      }
+      users.removeAt(index);
+    });
+  }
+
+  void _selectUser(int index) {
+    setState(() {
+      selectedUserIndex = (selectedUserIndex == index) ? null : index;
+      // 부모 위젯(MainShell)에 선택된 사용자 이름 전달
+      widget.onUserSelectionChanged(
+        selectedUserIndex != null ? users[selectedUserIndex!].name : null,
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(children: [
-        Expanded(
-            child: Row(children: [
-          Expanded(
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('인식된 얼굴',
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: GridView.count(
-                        crossAxisCount: 2,
-                        childAspectRatio: 3,
-                        children: faces.map((f) {
-                          return GestureDetector(
-                            onTap: () => widget.selectFace(f.id),
-                            child: Container(
-                              margin: const EdgeInsets.all(6),
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: widget.selectedFaceId == f.id
-                                      ? Colors.blue
-                                      : Colors.grey.shade300,
-                                ),
-                                color: widget.selectedFaceId == f.id
-                                    ? Colors.blue.shade50
-                                    : null,
-                              ),
-                              child: Row(
-                                children: [
-                                  CircleAvatar(
-                                      child: Text(f.name.split(' ').last)),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Text(f.name),
-                                        Text(
-                                          'conf: ${(f.confidence * 100).toStringAsFixed(0)}%',
-                                          style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black54),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ],
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F7F8),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // 공통 상단바
+            AppTopBar(
+              deviceName: widget.deviceName,
+              subtitle: selectedUserIndex != null
+                  ? '${users[selectedUserIndex!].name} 선택 중'
+                  : 'Lab Fan',
+              connected: widget.connected,
+              onConnectToggle: widget.onConnect,
+            ),
+
+            const SizedBox(height: 16),
+
+            // 사용자 프로필 가로 스크롤
+            SizedBox(
+              height: 110,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                itemCount: users.length + 1, // +1 for add button
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    // 첫 번째: 사용자 추가 버튼
+                    return _AddUserCard(onTap: _addUser);
+                  }
+                  final userIndex = index - 1;
+                  return _UserCard(
+                    user: users[userIndex],
+                    isSelected: selectedUserIndex == userIndex,
+                    onTap: () => _selectUser(userIndex),
+                    onLongPress: () => _showDeleteDialog(userIndex),
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 40),
+
+            // 리모콘
+            Expanded(
+              child: Center(
+                child: RemoteControlDpad(
+                  size: 280,
+                  onUp: () => _sendCommand('up'),
+                  onDown: () => _sendCommand('down'),
+                  onLeft: () => _sendCommand('left'),
+                  onRight: () => _sendCommand('right'),
+                  onCenter: () => _sendCommand('center'),
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteDialog(int index) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('사용자 삭제'),
+        content: Text('${users[index].name}을(를) 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-              child: Card(
-                  child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(children: [
-                        Text('수동 조작 / 미리보기',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 12),
-                        Expanded(
-                            child: Column(children: [
-                          Expanded(child: _CameraPreviewMock(target: target)),
-                          const SizedBox(height: 12),
-                          Joystick(onMove: (v) => widget.manualMove(v))
-                        ]))
-                      ]))))
-        ]))
-      ]),
+          TextButton(
+            onPressed: () {
+              _deleteUser(index);
+              Navigator.pop(context);
+            },
+            child: const Text(
+              '삭제',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _sendCommand(String direction) {
+    if (selectedUserIndex == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('사용자를 먼저 선택해주세요')),
+      );
+      return;
+    }
+    print('Command: $direction for user ${users[selectedUserIndex!].name}');
+    // TODO: BLE 명령 전송 로직
+  }
+}
+
+class UserProfile {
+  final String name;
+  final String avatarUrl;
+
+  UserProfile({required this.name, required this.avatarUrl});
+}
+
+class _AddUserCard extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _AddUserCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 90,
+        height: 90,
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF437EFF).withOpacity(0.1),
+              ),
+              child: const Icon(
+                Icons.add,
+                color: Color(0xFF437EFF),
+                size: 30,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              '추가',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF282840),
+                fontFamily: 'Sen',
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-class _CameraPreviewMock extends StatelessWidget {
-  final Offset? target;
-  const _CameraPreviewMock({this.target});
+class _UserCard extends StatelessWidget {
+  final UserProfile user;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _UserCard({
+    required this.user,
+    required this.isSelected,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 16 / 9,
-      child: Stack(
-        children: [
-          Container(color: Colors.grey.shade100),
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.videocam, size: 48, color: Colors.grey),
-                SizedBox(height: 6),
-                Text('Camera preview (mock)',
-                    style: TextStyle(color: Colors.grey)),
-              ],
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Container(
+        width: 90,
+        height: 90,
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          border: isSelected
+              ? Border.all(color: const Color(0xFF437EFF), width: 3)
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: isSelected
+                  ? const Color(0xFF437EFF).withOpacity(0.2)
+                  : Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
             ),
-          ),
-          if (target != null)
-            Positioned(
-              left: target!.dx * MediaQuery.of(context).size.width * 0.6,
-              top: target!.dy * MediaQuery.of(context).size.height * 0.18,
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.blue),
-                  color: Colors.blue.withValues(alpha: 0.14),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                image: DecorationImage(
+                  image: NetworkImage(user.avatarUrl),
+                  fit: BoxFit.cover,
                 ),
               ),
             ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              user.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF282840),
+                fontFamily: 'Sen',
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

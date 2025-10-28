@@ -1,18 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import '../services/ble_service.dart';
 
 class DeviceSelectionScreen extends StatefulWidget {
-  final BleService bleService;
+  final dynamic bleService; // BleService 또는 TestBleService 모두 받음
   final Function(bool) onConnectionChanged;
+  final Function(String)? onDeviceNameChanged;
 
   const DeviceSelectionScreen({
     super.key,
     required this.bleService,
     required this.onConnectionChanged,
+    this.onDeviceNameChanged,
   });
 
   @override
@@ -22,25 +22,158 @@ class DeviceSelectionScreen extends StatefulWidget {
 class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   List<BluetoothDevice> _devices = [];
   final Map<String, String> _connectionStates = {}; // deviceId -> 상태
+  final Map<String, String> _pairingPins = {}; // deviceId -> PIN
   bool _isScanning = false;
-  bool _hasConnectedDevice = false; // 연결된 기기가 있는지 추적
-  Timer? _scanUpdateTimer; // 스캔 중 실시간 업데이트용 타이머
+  bool _hasConnectedDevice = false;
+  Timer? _scanUpdateTimer;
 
   @override
   void initState() {
     super.initState();
+    _setupCallbacks();
     _startScanning();
+  }
+
+  void _setupCallbacks() {
+    // 페어링 응답 콜백 설정 (TestBleService의 Notification 수신)
+    widget.bleService.onPairingResponse = (response) {
+      try {
+        final Map<String, dynamic> data = json.decode(response);
+
+        // 라즈베리파이에서 PIN 전송
+        if (data['type'] == 'PAIRING_PIN') {
+          final pin = data['pin'] as String;
+          debugPrint('Received PIN from RPi: $pin');
+
+          // 현재 연결 시도 중인 기기에 PIN 표시
+          final connectingDevice = _connectionStates.entries
+              .firstWhere(
+                (entry) =>
+                    entry.value.contains('연결 중') ||
+                    entry.value.contains('본딩 중'),
+                orElse: () => const MapEntry('', ''),
+              )
+              .key;
+
+          if (connectingDevice.isNotEmpty && mounted) {
+            setState(() {
+              _pairingPins[connectingDevice] = pin;
+              _connectionStates[connectingDevice] = '본딩 중 - PIN: $pin';
+            });
+
+            // PIN 다이얼로그 표시
+            _showPinDialog(pin);
+          }
+        }
+
+        // 연결 성공 응답
+        else if (data['type'] == 'pairing_success' || data['type'] == 'ACK') {
+          debugPrint('Device connected successfully');
+          if (mounted) {
+            final connectedDevice = _connectionStates.entries
+                .firstWhere(
+                  (entry) =>
+                      entry.value.contains('본딩 중') ||
+                      entry.value.contains('연결 중'),
+                  orElse: () => const MapEntry('', ''),
+                )
+                .key;
+
+            if (connectedDevice.isNotEmpty) {
+              setState(() {
+                _connectionStates[connectedDevice] = '연결 완료';
+                _hasConnectedDevice = true;
+                widget.onConnectionChanged(true);
+              });
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Pairing response parse error: $e');
+      }
+    };
+
+    // 기기 이름 변경 콜백 연결 (가능한 경우)
+    try {
+      widget.bleService.onDeviceNameChanged = (name) {
+        if (widget.onDeviceNameChanged != null) {
+          widget.onDeviceNameChanged!(name);
+        }
+      };
+    } catch (_) {}
+  }
+
+  void _showPinDialog(String pin) {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.lock, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('블루투스 본딩'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '안드로이드 시스템 PIN 입력창에서\n아래 번호를 입력하세요:',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    pin,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 8,
+                      color: Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '💡 설정 > 블루투스에서 "AmbientNode"를 탭하고\nPIN 입력 후 "페어링" 버튼을 누르세요.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _startScanning() {
     setState(() {
       _isScanning = true;
-      // 연결 실패한 기기들 초기화
       _connectionStates.removeWhere(
-          (key, value) => value == '연결 실패' || value == '페어링 대기 중...');
+          (key, value) => value == '연결 실패' || value.contains('본딩 중'));
     });
 
-    // 스캔 시작
     widget.bleService.startScan().listen((devices) {
       if (mounted) {
         setState(() {
@@ -49,7 +182,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       }
     });
 
-    // 1초마다 스캔 결과 업데이트 (애니메이션 중)
     _scanUpdateTimer?.cancel();
     _scanUpdateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!_isScanning) {
@@ -57,11 +189,8 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
         return;
       }
 
-      // 스캔 결과 강제 업데이트 요청
       if (mounted) {
-        setState(() {
-          // UI 업데이트를 위한 빈 setState
-        });
+        setState(() {});
       }
     });
   }
@@ -79,42 +208,38 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       _connectionStates[deviceId] = '연결 중...';
     });
 
-    // 페어링 응답 콜백 설정
-    widget.bleService.onPairingResponse = (response) {
-      try {
-        final Map<String, dynamic> data = json.decode(response);
-        if (data['type'] == 'pairing_success') {
-          if (mounted) {
-            setState(() {
-              _connectionStates[deviceId] = '연결 완료';
-              _hasConnectedDevice = true;
-              widget.onConnectionChanged(true);
-            });
-          }
-        }
-      } catch (e) {
-        debugPrint('Pairing response parse error: $e');
-      }
-    };
-
     final success = await widget.bleService.connectToDevice(device);
 
     if (mounted) {
       if (success) {
-        // BLE 연결은 성공했지만, 페어링 완료 응답을 기다림
-        setState(() {
-          _connectionStates[deviceId] = '페어링 대기 중...';
-        });
+        // TestBleService는 본딩 완료 후 success=true 반환
+        // BleService는 즉시 success=true 반환
 
-        // 10초 후에도 페어링 응답이 없으면 실패 처리
-        Future.delayed(const Duration(seconds: 10), () {
-          if (mounted && _connectionStates[deviceId] == '페어링 대기 중...') {
-            setState(() {
-              _connectionStates[deviceId] = '연결 실패';
-              _checkConnectionStatus();
-            });
-          }
-        });
+        // TestBleService인 경우 본딩 대기
+        if (widget.bleService.runtimeType.toString() == 'TestBleService') {
+          setState(() {
+            _connectionStates[deviceId] = '본딩 대기 중...';
+          });
+
+          // 60초 후에도 본딩 응답이 없으면 실패 처리
+          Future.delayed(const Duration(seconds: 60), () {
+            if (mounted &&
+                (_connectionStates[deviceId]?.contains('본딩') ?? false) &&
+                _connectionStates[deviceId] != '연결 완료') {
+              setState(() {
+                _connectionStates[deviceId] = '연결 실패 (본딩 타임아웃)';
+                _checkConnectionStatus();
+              });
+            }
+          });
+        } else {
+          // BleService는 즉시 완료 처리
+          setState(() {
+            _connectionStates[deviceId] = '연결 완료';
+            _hasConnectedDevice = true;
+            widget.onConnectionChanged(true);
+          });
+        }
       } else {
         setState(() {
           _connectionStates[deviceId] = '연결 실패';
@@ -125,7 +250,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   }
 
   void _checkConnectionStatus() {
-    // 연결된 기기가 있는지 확인
     bool hasConnected =
         _connectionStates.values.any((state) => state == '연결 완료');
     if (hasConnected != _hasConnectedDevice) {
@@ -240,6 +364,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                       final device = _devices[index];
                       final deviceId = device.remoteId.toString();
                       final connectionState = _connectionStates[deviceId] ?? '';
+                      final pin = _pairingPins[deviceId];
 
                       return Card(
                         margin: const EdgeInsets.symmetric(
@@ -249,9 +374,10 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                             Icons.bluetooth,
                             color: connectionState == '연결 완료'
                                 ? Colors.green
-                                : connectionState == '연결 실패'
+                                : connectionState == '연결 실패' ||
+                                        connectionState.contains('타임아웃')
                                     ? Colors.red
-                                    : connectionState == '페어링 대기 중...'
+                                    : connectionState.contains('본딩')
                                         ? Colors.orange
                                         : Colors.blue,
                           ),
@@ -268,12 +394,33 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                                   style: TextStyle(
                                     color: connectionState == '연결 완료'
                                         ? Colors.green
-                                        : connectionState == '연결 실패'
+                                        : connectionState == '연결 실패' ||
+                                                connectionState.contains('타임아웃')
                                             ? Colors.red
-                                            : connectionState == '페어링 대기 중...'
+                                            : connectionState.contains('본딩')
                                                 ? Colors.orange
                                                 : Colors.blue,
                                     fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              if (pin != null)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.shade50,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                        color: Colors.orange.shade200),
+                                  ),
+                                  child: Text(
+                                    'PIN: $pin',
+                                    style: TextStyle(
+                                      color: Colors.orange.shade900,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                             ],
