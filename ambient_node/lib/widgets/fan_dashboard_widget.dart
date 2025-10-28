@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:ambient_node/widgets/app_top_bar.dart';
+import 'package:ambient_node/services/analytics_service.dart';
 
 class FanDashboardWidget extends StatefulWidget {
   final bool connected;
