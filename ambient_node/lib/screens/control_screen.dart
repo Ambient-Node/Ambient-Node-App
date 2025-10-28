@@ -5,6 +5,7 @@ import 'package:ambient_node/widgets/app_top_bar.dart';
 import 'package:ambient_node/widgets/remote_control_dpad.dart';
 import 'package:ambient_node/screens/user_registration_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ambient_node/services/analytics_service.dart';
 
 class ControlScreen extends StatefulWidget {
   final bool connected;
@@ -287,6 +288,14 @@ class _ControlScreenState extends State<ControlScreen> {
     } else {
       print('🎮 수동 제어: $direction (사용자 선택 없음)');
     }
+
+    // 분석 서비스에 수동 제어 기록 (안전하게 호출)
+    try {
+      AnalyticsService.onManualControl(direction, null);
+    } catch (e) {
+      print('❌ AnalyticsService.onManualControl 오류: $e');
+    }
+
     // TODO: BLE 명령 전송 로직
     // 실제 구현 시:
     // widget.onUserDataSend?.call({

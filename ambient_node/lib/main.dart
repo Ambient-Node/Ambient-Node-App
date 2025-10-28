@@ -4,6 +4,7 @@ import 'package:ambient_node/screens/splash_screen.dart';
 import 'package:ambient_node/screens/dashboard_screen.dart';
 import 'package:ambient_node/screens/analytics_screen.dart';
 import 'package:ambient_node/screens/control_screen.dart';
+import 'package:ambient_node/services/analytics_service.dart';
 
 class AiService {}
 
@@ -81,6 +82,8 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    // 분석 서비스 초기화
+    AnalyticsService.onUserChanged(selectedUserName);
   }
 
   @override
@@ -139,11 +142,27 @@ class _MainShellState extends State<MainShell> {
         setSpeed: (v) {
           setState(() => speed = v);
           sendState();
+          // 속도 변경 시 분석 서비스에 알림 (안전하게 호출)
+          try {
+            AnalyticsService.onSpeedChanged(v);
+          } catch (e) {
+            print('❌ AnalyticsService.onSpeedChanged 오류: $e');
+          }
         },
         trackingOn: trackingOn,
         setTrackingOn: (v) {
           setState(() => trackingOn = v);
           sendState();
+          // 얼굴 추적 상태 변경 시 분석 서비스에 알림 (안전하게 호출)
+          try {
+            if (v) {
+              AnalyticsService.onFaceTrackingStart();
+            } else {
+              AnalyticsService.onFaceTrackingStop();
+            }
+          } catch (e) {
+            print('❌ AnalyticsService.onFaceTracking 오류: $e');
+          }
         },
         openAnalytics: () => setState(() => _index = 2),
         deviceName: deviceName,
@@ -160,6 +179,12 @@ class _MainShellState extends State<MainShell> {
             selectedUserName = userName;
             selectedUserImagePath = userImagePath;
           });
+          // 사용자 변경 시 분석 서비스에 알림 (안전하게 호출)
+          try {
+            AnalyticsService.onUserChanged(userName);
+          } catch (e) {
+            print('❌ AnalyticsService.onUserChanged 오류: $e');
+          }
         },
         onUserDataSend: (data) {
           // TODO: BLE를 통해 라즈베리파이로 사용자 데이터 전송
@@ -168,7 +193,7 @@ class _MainShellState extends State<MainShell> {
           ble.sendJson(data);
         },
       ),
-      const AnalyticsScreen(),
+      AnalyticsScreen(selectedUserName: selectedUserName),
     ];
 
     return Scaffold(
