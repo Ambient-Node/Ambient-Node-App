@@ -35,35 +35,74 @@ class DashboardScreen extends StatelessWidget {
           Row(children: [
             const Icon(Icons.air),
             const SizedBox(width: 8),
-            const Text('Circulator', style: TextStyle(fontWeight: FontWeight.w600))
+            const Text('Circulator',
+                style: TextStyle(fontWeight: FontWeight.w600))
           ]),
           Row(children: [
             Text(connected ? 'Connected' : 'Offline'),
             const SizedBox(width: 8),
-            ElevatedButton(onPressed: () => onConnect(), child: const Text('Pair'))
+            ElevatedButton(
+                onPressed: () => onConnect(), child: const Text('Pair'))
           ])
         ]),
         const SizedBox(height: 16),
         Center(child: FanPreview(powerOn: powerOn, speed: speed)),
         const SizedBox(height: 16),
         Row(children: [
-          Expanded(child: ControlCard(title: '전원', child: Switch(value: powerOn, onChanged: setPowerOn))),
+          Expanded(
+            child: ControlCard(
+              title: '전원',
+              child: Column(
+                children: [
+                  Switch(
+                      value: powerOn,
+                      onChanged: (value) {
+                        setPowerOn(value);
+                        // 전원 상태 변경 시 즉시 전송
+                        if (connected) {
+                          // sendState() 호출을 위해 부모에게 알림
+                          // 이는 main.dart의 setState에서 처리됨
+                        }
+                      }),
+                  if (!powerOn && connected)
+                    Text(
+                      'Bluetooth 연결 유지',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(width: 8),
           Expanded(
               child: ControlCard(
                   title: '풍량',
                   child: Column(children: [
-                    Slider(value: speed.toDouble(), min: 0, max: 100, onChanged: (v) => setSpeed(v.toInt())),
+                    Slider(
+                        value: speed.toDouble(),
+                        min: 0,
+                        max: 100,
+                        onChanged: (v) => setSpeed(v.toInt())),
                     Text('$speed%')
                   ]))),
           const SizedBox(width: 8),
-          Expanded(child: ControlCard(title: '얼굴 추적', child: Switch(value: trackingOn, onChanged: setTrackingOn))),
+          Expanded(
+              child: ControlCard(
+                  title: '얼굴 추적',
+                  child: Switch(value: trackingOn, onChanged: setTrackingOn))),
         ]),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: ElevatedButton(onPressed: openControl, child: const Text('얼굴 선택 & 수동 조작'))),
+          Expanded(
+              child: ElevatedButton(
+                  onPressed: openControl, child: const Text('얼굴 선택 & 수동 조작'))),
           const SizedBox(width: 8),
-          Expanded(child: OutlinedButton(onPressed: () {}, child: const Text('데이터 분석 보기')))
+          Expanded(
+              child: OutlinedButton(
+                  onPressed: () {}, child: const Text('데이터 분석 보기')))
         ]),
         const SizedBox(height: 16),
         GridView.count(
