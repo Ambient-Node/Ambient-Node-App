@@ -1,13 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
-/// 모든 화면에서 공통으로 사용하는 상단바 위젯
 class AppTopBar extends StatelessWidget {
   final String deviceName;
   final String subtitle;
   final bool connected;
   final VoidCallback onConnectToggle;
-  final String? userImagePath; // 선택된 사용자의 이미지 경로
+  final String? userImagePath;
 
   const AppTopBar({
     super.key,
@@ -18,94 +17,141 @@ class AppTopBar extends StatelessWidget {
     this.userImagePath,
   });
 
+  // Nature Theme Colors
+  static const Color _textDark = Color(0xFF2D3142);
+  static const Color _textGrey = Color(0xFF9095A5);
+  static const Color _activeGreen = Color(0xFF4CAF50); // Nature Green
+  static const Color _bgGreen = Color(0xFFE8F5E9);
+
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 45,
-                height: 45,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFECF0F4),
-                  shape: BoxShape.circle,
-                ),
-                child: ClipOval(
-                  child: userImagePath != null
-                      ? Image.file(
-                          File(userImagePath!),
-                          fit: BoxFit.cover,
-                          width: 45,
-                          height: 45,
-                          errorBuilder: (context, error, stackTrace) {
-                            // 이미지 로드 실패 시 기본 아이콘 표시
-                            return const Center(
-                              child: Icon(Icons.toys,
-                                  color: Color(0xFF3A91FF), size: 24),
-                            );
-                          },
-                        )
-                      : const Center(
-                          child: Icon(Icons.toys,
-                              color: Color(0xFF3A91FF), size: 24),
+          // 1. Profile & Info
+          Expanded(
+            child: Row(
+              children: [
+                _buildProfileAvatar(),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        deviceName,
+                        style: const TextStyle(
+                          color: _textDark,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          fontFamily: 'Sen',
+                          height: 1.2,
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: _textGrey,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          fontFamily: 'Sen',
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    deviceName,
-                    style: const TextStyle(
-                      color: Color(0xFF1F2024),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: 'Sen',
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Color(0xFF676767),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      fontFamily: 'Sen',
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
-          Row(
-            children: [
-              IconButton(
-                icon: Icon(
-                  connected
-                      ? Icons.bluetooth_connected
-                      : Icons.bluetooth_disabled,
-                  color: connected ? const Color(0xFF448AFF) : Colors.grey,
-                ),
-                onPressed: onConnectToggle,
-                tooltip: connected ? '블루투스 해제' : '블루투스 연결',
-              ),
-              Switch(
-                value: connected,
-                onChanged: (_) => onConnectToggle(),
-                activeColor: const Color(0xFF448AFF),
-                activeTrackColor:
-                    const Color(0xFF448AFF).withValues(alpha: 0.35),
-                inactiveThumbColor: Colors.grey,
-                inactiveTrackColor: Colors.grey.withValues(alpha: 0.3),
-              ),
-            ],
+
+          // 2. Connection Status Chip (Nature Style)
+          const SizedBox(width: 12),
+          _buildConnectionChip(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileAvatar() {
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white,
+        border: Border.all(color: Colors.grey.shade200, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
+      ),
+      child: ClipOval(
+        child: userImagePath != null
+            ? Image.file(
+          File(userImagePath!),
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _buildDefaultAvatar(),
+        )
+            : _buildDefaultAvatar(),
+      ),
+    );
+  }
+
+  Widget _buildDefaultAvatar() {
+    return const Center(
+      child: Icon(Icons.spa_rounded, color: _activeGreen, size: 24), // 나뭇잎 아이콘
+    );
+  }
+
+  Widget _buildConnectionChip() {
+    return GestureDetector(
+      onTap: onConnectToggle,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: connected ? _bgGreen : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: connected ? _activeGreen.withOpacity(0.3) : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: connected ? _activeGreen : Colors.grey.shade400,
+                boxShadow: connected
+                    ? [BoxShadow(color: _activeGreen.withOpacity(0.5), blurRadius: 6)]
+                    : [],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              connected ? "Online" : "Offline",
+              style: TextStyle(
+                fontFamily: 'Sen',
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: connected ? _textDark : _textGrey,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

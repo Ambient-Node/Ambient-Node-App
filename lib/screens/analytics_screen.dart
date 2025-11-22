@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
-import '../models/user_analytics.dart';
-import '../services/analytics_service.dart';
-import '../widgets/analytics_charts.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:intl/intl.dart';
+import 'package:ambient_node/services/analytics_service.dart';
+import 'package:ambient_node/models/user_analytics.dart';
 
 class AnalyticsScreen extends StatefulWidget {
-  final String? selectedUserName;
+  final DashboardAnalytics? analyticsData;
+  final bool isLoading;
+  final Function(String period) onPeriodChanged;
 
   const AnalyticsScreen({
     super.key,
-    this.selectedUserName,
+    this.analyticsData,
+    this.isLoading = false,
+    required this.onPeriodChanged,
   });
 
   @override
@@ -16,628 +21,421 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  bool _isWeekly = false;
-  AnalyticsData? _analyticsData;
-  bool _isLoading = true;
+  String _selectedPeriod = 'day';
 
-  @override
-  void initState() {
-    super.initState();
-    _loadAnalytics();
-  }
+  // ✨ Nature Theme Colors
+  static const Color _primaryGreen = Color(0xFF4CAF50);
+  static const Color _lightGreen = Color(0xFF81C784);
+  static const Color _bgWhite = Colors.white;
+  static const Color _bgGrey = Color(0xFFF1F8E9); // Very light green tint
+  static const Color _textDark = Color(0xFF2D3142);
+  static const Color _textGrey = Color(0xFF9095A5);
 
-  @override
-  void didUpdateWidget(AnalyticsScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedUserName != widget.selectedUserName) {
-      _loadAnalytics();
-    }
-  }
-
-  Future<void> _loadAnalytics() async {
-    print(
-        '🔍 _loadAnalytics called - selectedUserName: ${widget.selectedUserName}');
-
-    if (widget.selectedUserName == null) {
-      print('❌ No user selected');
-      setState(() {
-        _analyticsData = null;
-        _isLoading = false;
-      });
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final now = DateTime.now();
-      print('📊 Loading analytics for user: ${widget.selectedUserName}');
-
-      final data = _isWeekly
-          ? await AnalyticsService.getWeeklyAnalytics(
-              widget.selectedUserName!,
-              now.subtract(Duration(days: now.weekday - 1)), // 주간 시작일
-            )
-          : await AnalyticsService.getDailyAnalytics(
-              widget.selectedUserName!,
-              now,
-            );
-
-      print(
-          '✅ Analytics loaded - totalUsageTime: ${data.totalUsageTime.inMinutes} minutes');
-
-      setState(() {
-        _analyticsData = data;
-        _isLoading = false;
-      });
-    } catch (e) {
-      print('❌ Error loading analytics: $e');
-      setState(() {
-        _analyticsData = null;
-        _isLoading = false;
-      });
-    }
-  }
-
-  void _toggleTimeRange() {
-    setState(() {
-      _isWeekly = !_isWeekly;
-    });
-    _loadAnalytics();
-  }
+  final TextStyle _fontSen = const TextStyle(fontFamily: 'Sen');
 
   @override
   Widget build(BuildContext context) {
+    final data = widget.analyticsData;
+    final hasData = data != null && !widget.isLoading;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7F8),
+      backgroundColor: _bgGrey,
       body: SafeArea(
-        child: Column(
-          children: [
-            // 헤더
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: Row(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    '사용자 분석',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
-                      fontFamily: 'Sen',
-                    ),
-                  ),
-                  const Spacer(),
-                  // 일간/주간 토글 버튼과 테스트 데이터 생성 버튼
-                  Row(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildToggleButton('일간', !_isWeekly),
-                            _buildToggleButton('주간', _isWeekly),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // 테스트 데이터 생성 버튼
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF3A91FF),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: IconButton(
-                          onPressed: () async {
-                            print(
-                                '🧪 테스트 데이터 생성 버튼 클릭됨 (사용자: ${widget.selectedUserName})');
-                            try {
-                              await AnalyticsService.generateTestData(
-                                  widget.selectedUserName!);
-                              print('✅ 테스트 데이터 생성 완료');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('테스트 데이터가 생성되었습니다!'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                              // 데이터 새로고침
-                              _loadAnalytics();
-                            } catch (e) {
-                              print('❌ 테스트 데이터 생성 실패: $e');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('테스트 데이터 생성 실패: $e'),
-                                  duration: const Duration(seconds: 3),
-                                ),
-                              );
-                            }
-                          },
-                          icon: const Icon(
-                            Icons.science,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                          tooltip: '테스트 데이터 생성',
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // 콘텐츠
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : widget.selectedUserName == null
-                      ? _buildNoUserSelected()
-                      : _analyticsData == null
-                          ? _buildNoData()
-                          : _buildAnalyticsContent(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildToggleButton(String text, bool isSelected) {
-    return GestureDetector(
-      onTap: isSelected ? null : _toggleTimeRange,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3A91FF) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[600],
-            fontWeight: FontWeight.w600,
-            fontFamily: 'Sen',
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNoUserSelected() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.person_outline,
-            size: 64,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '사용자를 선택해주세요',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey[600],
-              fontFamily: 'Sen',
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '제어 탭에서 사용자를 선택하면\n분석 데이터를 확인할 수 있습니다',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-              fontFamily: 'Sen',
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // 테스트 데이터 생성 버튼
-          ElevatedButton.icon(
-            onPressed: () async {
-              print('🧪 테스트 데이터 생성 버튼 클릭됨');
-              try {
-                await AnalyticsService.generateTestData('테스트 사용자');
-                print('✅ 테스트 데이터 생성 완료');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('테스트 데이터가 생성되었습니다!'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              } catch (e) {
-                print('❌ 테스트 데이터 생성 실패: $e');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('테스트 데이터 생성 실패: $e'),
-                    duration: const Duration(seconds: 3),
-                  ),
-                );
-              }
-            },
-            icon: const Icon(Icons.science),
-            label: const Text('테스트 데이터 생성'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF3A91FF),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNoData() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.analytics_outlined,
-            size: 64,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '분석 데이터가 없습니다',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey[600],
-              fontFamily: 'Sen',
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '선풍기를 사용하면\n분석 데이터가 생성됩니다',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-              fontFamily: 'Sen',
-            ),
-          ),
-          const SizedBox(height: 24),
-          // 테스트 데이터 생성 버튼
-          ElevatedButton.icon(
-            onPressed: () async {
-              await AnalyticsService.generateTestData(widget.selectedUserName!);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('테스트 데이터가 생성되었습니다!'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-              // 데이터 새로고침
-              _loadAnalytics();
-            },
-            icon: const Icon(Icons.science),
-            label: const Text('테스트 데이터 생성'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF3A91FF),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnalyticsContent() {
-    final data = _analyticsData!;
-    final totalHours = data.totalUsageTime.inHours;
-    final totalMinutes = data.totalUsageTime.inMinutes % 60;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 사용자 정보
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: const Color(0xFF3A91FF).withOpacity(0.1),
-                  child: Text(
-                    widget.selectedUserName![0].toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF3A91FF),
-                      fontFamily: 'Sen',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.selectedUserName!,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Sen',
+                        "Analytics",
+                        style: _fontSen.copyWith(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: _textDark,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _isWeekly ? '주간 분석' : '일간 분석',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                          fontFamily: 'Sen',
-                        ),
+                        DateFormat('MMM d, yyyy').format(DateTime.now()),
+                        style: _fontSen.copyWith(fontSize: 14, color: _textGrey, fontWeight: FontWeight.w500),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // 통계 카드들
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: '총 사용시간',
-                  value: '${totalHours}시간 ${totalMinutes}분',
-                  icon: Icons.access_time,
-                  color: const Color(0xFF3A91FF),
-                ),
+                  _buildPeriodToggle(),
+                ],
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: StatCard(
-                  title: '수동 제어',
-                  value: '${data.manualControlCount}회',
-                  icon: Icons.touch_app,
-                  color: const Color(0xFF4CAF50),
-                ),
+              const SizedBox(height: 32),
+
+              // 2. Summary Hero (Green Gradient)
+              _buildSummaryCard(hasData, data),
+
+              const SizedBox(height: 24),
+
+              // 3. Usage Trend
+              _SectionHeader(title: "Usage Trend", icon: Icons.bar_chart_rounded),
+              const SizedBox(height: 12),
+              Container(
+                height: 300,
+                decoration: _cardDecoration(),
+                padding: const EdgeInsets.all(24),
+                child: hasData
+                    ? _UsageBarChart(stats: data!.usageStats, period: _selectedPeriod)
+                    : _buildLoadingShimmer(),
               ),
-            ],
-          ),
 
-          const SizedBox(height: 16),
+              const SizedBox(height: 24),
 
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: '얼굴 추적',
-                  value: '${data.faceTrackingTime.inMinutes}분',
-                  icon: Icons.face,
-                  color: const Color(0xFFFF9800),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: StatCard(
-                  title: '평균 속도',
-                  value: _getAverageSpeed(data),
-                  icon: Icons.speed,
-                  color: const Color(0xFF9C27B0),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          // 사용 시간 차트
-          UsageTimeChart(
-            data: data,
-            isWeekly: _isWeekly,
-          ),
-
-          const SizedBox(height: 24),
-
-          // 속도별 사용 비율 차트
-          SpeedUsagePieChart(data: data),
-
-          const SizedBox(height: 24),
-
-          // 상세 정보
-          if (data.speedUsageTime.isNotEmpty) _buildSpeedDetails(data),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSpeedDetails(AnalyticsData data) {
-    final totalMinutes = data.speedUsageTime.values
-        .fold<Duration>(Duration.zero, (sum, duration) => sum + duration)
-        .inMinutes;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '속도별 상세 사용량',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey[800],
-              fontFamily: 'Sen',
-            ),
-          ),
-          const SizedBox(height: 16),
-          ...data.speedUsageTime.entries.map((entry) {
-            final speed = entry.key;
-            final duration = entry.value;
-            final percentage = totalMinutes > 0
-                ? (duration.inMinutes / totalMinutes) * 100
-                : 0.0;
-            final hours = duration.inHours;
-            final minutes = duration.inMinutes % 60;
-
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
+              // 4. Smart Analysis
+              Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: _getSpeedColor(speed),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        '$speed',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          fontFamily: 'Sen',
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
                   Expanded(
+                    flex: 5,
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '${speed}단계',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            fontFamily: 'Sen',
-                          ),
-                        ),
-                        Text(
-                          '${hours}시간 ${minutes}분 (${percentage.toStringAsFixed(1)}%)',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                            fontFamily: 'Sen',
-                          ),
+                        _SectionHeader(title: "AI Mode", icon: Icons.pie_chart_rounded),
+                        const SizedBox(height: 12),
+                        Container(
+                          height: 220,
+                          decoration: _cardDecoration(),
+                          padding: const EdgeInsets.all(20),
+                          child: hasData
+                              ? _ModeDonutChart(stats: data!.modeRatioStats)
+                              : _buildLoadingShimmer(),
                         ),
                       ],
                     ),
                   ),
-                  // 진행률 바
-                  Container(
-                    width: 100,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: percentage / 100,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: _getSpeedColor(speed),
-                          borderRadius: BorderRadius.circular(4),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 4,
+                    child: Column(
+                      children: [
+                        _SectionHeader(title: "Speed", icon: Icons.wind_power_rounded),
+                        const SizedBox(height: 12),
+                        Container(
+                          height: 220,
+                          decoration: _cardDecoration(),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                          child: hasData
+                              ? _SpeedPreferenceList(stats: data!.speedDistStats)
+                              : _buildLoadingShimmer(),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            );
-          }).toList(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Components ---
+
+  Widget _buildPeriodToggle() {
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+      ),
+      child: Row(
+        children: [
+          _toggleButton("Day", 'day'),
+          _toggleButton("Week", 'week'),
         ],
       ),
     );
   }
 
-  String _getAverageSpeed(AnalyticsData data) {
-    if (data.speedUsageTime.isEmpty) return '0단계';
-
-    final totalMinutes = data.speedUsageTime.values
-        .fold<Duration>(Duration.zero, (sum, duration) => sum + duration)
-        .inMinutes;
-
-    if (totalMinutes == 0) return '0단계';
-
-    final weightedSum = data.speedUsageTime.entries.fold<double>(
-        0, (sum, entry) => sum + (entry.key * entry.value.inMinutes));
-
-    final average = weightedSum / totalMinutes;
-    return '${average.toStringAsFixed(1)}단계';
+  Widget _toggleButton(String label, String value) {
+    final isSelected = _selectedPeriod == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedPeriod = value);
+        widget.onPeriodChanged(value);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected ? _textDark : Colors.transparent,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          label,
+          style: _fontSen.copyWith(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: isSelected ? Colors.white : _textGrey,
+          ),
+        ),
+      ),
+    );
   }
 
-  Color _getSpeedColor(int speed) {
-    switch (speed) {
-      case 1:
-        return const Color(0xFFE3F2FD);
-      case 2:
-        return const Color(0xFFBBDEFB);
-      case 3:
-        return const Color(0xFF90CAF9);
-      case 4:
-        return const Color(0xFF64B5F6);
-      case 5:
-        return const Color(0xFF3A91FF);
-      default:
-        return Colors.grey;
+  Widget _buildSummaryCard(bool hasData, DashboardAnalytics? data) {
+    double totalMinutes = 0;
+    if (hasData && data != null) {
+      for (var item in data.usageStats) totalMinutes += item.minutes;
     }
+    final hours = (totalMinutes / 60).floor();
+    final minutes = (totalMinutes % 60).round();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        // ✨ Green Gradient
+        gradient: const LinearGradient(
+          colors: [_primaryGreen, Color(0xFF66BB6A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: _primaryGreen.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 56, height: 56,
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
+            child: const Icon(Icons.eco_rounded, color: Colors.white, size: 28), // Nature Icon
+          ),
+          const SizedBox(width: 20),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Total Usage", style: _fontSen.copyWith(color: Colors.white.withOpacity(0.9), fontSize: 14, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              hasData
+                  ? RichText(
+                text: TextSpan(
+                  style: _fontSen.copyWith(color: Colors.white),
+                  children: [
+                    TextSpan(text: "$hours", style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700)),
+                    const TextSpan(text: " h  ", style: TextStyle(fontSize: 16)),
+                    TextSpan(text: "$minutes", style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700)),
+                    const TextSpan(text: " min", style: TextStyle(fontSize: 16)),
+                  ],
+                ),
+              )
+                  : Container(height: 32, width: 100, color: Colors.white.withOpacity(0.2)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 5))],
+    );
+  }
+
+  Widget _buildLoadingShimmer() {
+    return Center(child: CircularProgressIndicator(color: _primaryGreen.withOpacity(0.5), strokeWidth: 2));
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  const _SectionHeader({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: const Color(0xFF9095A5)),
+        const SizedBox(width: 8),
+        Text(title, style: const TextStyle(fontFamily: 'Sen', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF2D3142))),
+      ],
+    );
+  }
+}
+
+// --- Charts (Green Colors) ---
+
+class _UsageBarChart extends StatelessWidget {
+  final List<UsageStatItem> stats;
+  final String period;
+  const _UsageBarChart({required this.stats, required this.period});
+
+  @override
+  Widget build(BuildContext context) {
+    double maxY = 0;
+    for (var s in stats) { if (s.minutes > maxY) maxY = s.minutes; }
+    maxY = (maxY * 1.2).clamp(10.0, double.infinity);
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceBetween,
+        maxY: maxY,
+        barTouchData: BarTouchData(
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipColor: (_) => const Color(0xFF2D3142),
+            tooltipRoundedRadius: 8,
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              return BarTooltipItem('${rod.toY.round()} min', const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12));
+            },
+          ),
+        ),
+        titlesData: FlTitlesData(
+          show: true,
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index < 0 || index >= stats.length) return const SizedBox();
+                final item = stats[index];
+                String text = period == 'day' ? DateFormat('H').format(item.time) : DateFormat('E').format(item.time);
+                if (stats.length > 12 && index % 2 != 0) return const SizedBox();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(text, style: const TextStyle(color: Color(0xFF9EA3B2), fontSize: 11, fontFamily: 'Sen')),
+                );
+              },
+              reservedSize: 30,
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        gridData: const FlGridData(show: false),
+        barGroups: stats.asMap().entries.map((entry) {
+          final index = entry.key;
+          final item = entry.value;
+          final isMax = item.minutes == stats.map((e) => e.minutes).reduce((a, b) => a > b ? a : b);
+          return BarChartGroupData(
+            x: index,
+            barRods: [
+              BarChartRodData(
+                toY: item.minutes,
+                // ✨ Green Bar
+                color: isMax ? const Color(0xFF4CAF50) : const Color(0xFFE0E3E7),
+                width: 12,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                backDrawRodData: BackgroundBarChartRodData(show: true, toY: maxY, color: const Color(0xFFF6F8FB)),
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _ModeDonutChart extends StatelessWidget {
+  final List<ModeRatioItem> stats;
+  const _ModeDonutChart({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final aiItem = stats.firstWhere((e) => e.mode == 'ai', orElse: () => ModeRatioItem(mode: 'ai', hours: 0, percentage: 0));
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        PieChart(
+          PieChartData(
+            sectionsSpace: 4,
+            centerSpaceRadius: 40,
+            startDegreeOffset: 270,
+            sections: stats.map((item) {
+              final isAi = item.mode == 'ai';
+              return PieChartSectionData(
+                // ✨ Green AI / Orange Manual
+                color: isAi ? const Color(0xFF4CAF50) : const Color(0xFFFFA726),
+                value: item.percentage,
+                title: '${item.percentage.round()}%',
+                radius: isAi ? 18 : 14,
+                titleStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+              );
+            }).toList(),
+          ),
+        ),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("${aiItem.percentage.round()}%", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF2D3142), fontFamily: 'Sen')),
+            const Text("AI Mode", style: TextStyle(fontSize: 10, color: Color(0xFF9095A5), fontWeight: FontWeight.w500)),
+          ],
+        )
+      ],
+    );
+  }
+}
+
+class _SpeedPreferenceList extends StatelessWidget {
+  final List<SpeedDistItem> stats;
+  const _SpeedPreferenceList({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = List<SpeedDistItem>.from(stats)..sort((a, b) => b.minutes.compareTo(a.minutes));
+    final top3 = sorted.take(3).toList();
+    final total = sorted.fold(0.0, (sum, item) => sum + item.minutes);
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: top3.map((item) {
+        final ratio = total == 0 ? 0.0 : (item.minutes / total);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("Level ${item.speed}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2D3142))),
+                Text("${(ratio * 100).round()}%", style: const TextStyle(fontSize: 10, color: Color(0xFF9095A5))),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Stack(
+              children: [
+                Container(height: 8, width: double.infinity, decoration: BoxDecoration(color: const Color(0xFFF0F2F5), borderRadius: BorderRadius.circular(4))),
+                FractionallySizedBox(
+                  widthFactor: ratio.clamp(0.0, 1.0),
+                  child: Container(
+                    height: 8,
+                    decoration: BoxDecoration(
+                      // ✨ Speed Colors (Soft Green -> Strong Green)
+                      color: item.speed <= 2 ? const Color(0xFFAED581) : (item.speed <= 4 ? const Color(0xFF4CAF50) : const Color(0xFF2E7D32)),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      }).toList(),
+    );
   }
 }

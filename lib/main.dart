@@ -5,10 +5,11 @@ import 'package:ambient_node/screens/dashboard_screen.dart';
 import 'package:ambient_node/screens/analytics_screen.dart';
 import 'package:ambient_node/screens/control_screen.dart';
 import 'package:ambient_node/screens/device_selection_screen.dart';
+import 'package:ambient_node/screens/settings_screen.dart';
 import 'package:ambient_node/services/analytics_service.dart';
 import 'package:ambient_node/services/ble_service.dart';
-
-class AiService {}
+import 'package:ambient_node/services/user_service.dart'; // UserService 추가
+import 'package:ambient_node/services/test_ble_service.dart'; // 추가
 
 void main() {
   runApp(const MyApp());
@@ -25,6 +26,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
+        fontFamily: 'Sen',
       ),
       home: const SplashWrapper(),
     );
@@ -64,221 +66,226 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
-  late final BleService ble;
+  // late final BleService ble; 원래 코드
+  late final dynamic ble;
 
-  // 앱의 핵심 상태 변수
-  bool connected = false; // 초기값 false로 변경
+  // 서비스 인스턴스
+  late final AnalyticsService analyticsService;
+  late final UserService userService;
+
+  final _bleDataStreamController = StreamController<Map<String, dynamic>>.broadcast();
+  StreamSubscription? _bleStateSub;
+  StreamSubscription? _bleDataSub;
+
+  bool connected = false;
   String deviceName = 'Ambient';
-  int speed = 0; // 0이면 전원 OFF와 동일
+
+  // 대시보드 상태 변수 (UI 표시용)
+  // 실제 제어 명령은 즉시 전송되지만, UI 반응성을 위해 로컬 변수 유지
+  int speed = 0;
   bool trackingOn = false;
-  // 사용자 선택 상태 (모든 스크린이 공유)
-  String? selectedUserName;
-  String? selectedUserImagePath;
 
   @override
   void initState() {
     super.initState();
-    
-    // BLE 서비스 초기화
-    ble = BleService();
-    
-    // BLE 연결 상태 콜백 설정
-    ble.onConnectionStateChanged = (isConnected) {
-      print('🔵 [BLE] 연결 상태 변경: $isConnected');
-      if (mounted) {
-        setState(() {
-          connected = isConnected;
-          if (!isConnected) {
-            speed = 0;
-            trackingOn = false;
-          }
-        });
+
+    const bool isTestMode = true;
+    if (isTestMode) {
+      ble = TestBleService(); // 가짜 서비스 주입
+    } else {
+      ble = BleService(); // 진짜 서비스 주입
+    }
+
+    analyticsService = AnalyticsService();
+    userService = UserService();
+    ble.initialize();
+
+    // [중요] 서비스들 연결 (Dependency Injection)
+    // UserService와 AnalyticsService가 BLE를 통해 데이터를 보내도록 설정
+    userService.init(onSendData: ble.sendJson);
+
+    // analyticsService.init(onPublish: _sendMqttViaBle);
+    // *참고: BLE Gateway가 MQTT 브리지 역할을 하므로,
+    // 앱에서는 특정 포맷으로 BLE를 보내면 Gateway가 MQTT로 변환해서 쏴주는 구조라고 가정하거나,
+    // 혹은 앱이 직접 MQTT를 쓰지 않고 BLE 커맨드만 보내면 Gateway가 알아서 처리하는 구조임.
+    // 현재 구조상 앱은 'action' 기반 JSON을 보내면 Gateway가 처리함.
+    // 따라서 AnalyticsService의 requestAllStats도 BLE 커맨드로 변환 필요.
+
+    // [중요] TestBleService일 경우 MQTT 전송 함수도 가짜로 연결
+    analyticsService.init(onPublish: (topic, payload) {
+      print("🧪 [TestMqtt] Topic: $topic, Payload: $payload");
+    });
+
+    // 2. BLE 상태 리스너
+    _bleStateSub = ble.connectionStateStream.listen((state) {
+      debugPrint('🔵 [Main] 연결 상태 변경: $state');
+      if (!mounted) return;
+
+      setState(() {
+        connected = (state == BleConnectionState.connected);
+        if (!connected) {
+          speed = 0;
+          trackingOn = false;
+        }
+      });
+
+      if (state == BleConnectionState.connected) {
+        // 연결 시 초기 데이터 요청 등 수행 가능
+      } else if (state == BleConnectionState.error) {
+        _showSnackBar('BLE 오류가 발생했습니다.');
       }
-    };
-    
-    // BLE 기기 이름 콜백 설정
-    ble.onDeviceNameChanged = (name) {
-      print('🔵 [BLE] 기기 이름: $name');
-      if (mounted) {
-        setState(() {
-          deviceName = name;
-        });
+    });
+
+    // 3. 데이터 수신 리스너 (라우팅)
+    _bleDataSub = ble.dataStream.listen((data) {
+      debugPrint('🔵 [Main] 데이터 수신: $data');
+      _bleDataStreamController.add(data); // 개별 화면들이 구독
+
+      // 통계 응답이면 AnalyticsService로 전달
+      if (data['type'] == 'STATS_RESPONSE' || data.containsKey('request_id')) {
+        // Gateway가 MQTT 응답을 BLE Notify로 그대로 줄 경우
+        analyticsService.handleResponse(data);
       }
+    });
+  }
+
+  // AnalyticsService용 어댑터 함수
+  // 앱 -> BLE -> Gateway -> MQTT -> DB Service 순으로 전달됨
+  void _sendMqttViaBle(String topic, Map<String, dynamic> payload) {
+    if (!connected) return;
+
+    // Gateway가 topic을 인식해서 MQTT로 쏘게 하려면
+    // BLE 프로토콜에 topic 필드를 포함해서 보내야 함.
+    final blePayload = {
+      'action': 'mqtt_publish', // Gateway에서 이 액션을 처리해야 함 (아래 Python 코드 수정 참고)
+      'topic': topic,
+      'payload': payload,
+      'timestamp': DateTime.now().toIso8601String(),
     };
-    
-    // BLE 데이터 수신 콜백
-    ble.onDataReceived = (data) {
-      print('🔵 [BLE] 데이터 수신: $data');
-      // 필요시 데이터 처리 로직 추가
-    };
-    
-    // BLE 에러 콜백
-    ble.onError = (error) {
-      print('❌ [BLE] 에러: $error');
-      if (mounted) {
-        _showSnackBar('BLE 오류: $error');
-      }
-    };
-    
-    // 분석 서비스 초기화
-    AnalyticsService.onUserChanged(selectedUserName);
+
+    ble.sendJson(blePayload);
   }
 
   @override
   void dispose() {
-    ble.dispose();
+    _bleStateSub?.cancel();
+    _bleDataSub?.cancel();
+    _bleDataStreamController.close();
     super.dispose();
   }
 
-  // 블루투스 연결/해제 토글 함수
   Future<void> handleConnect() async {
-    // 이미 연결된 상태면 해제
     if (connected) {
       try {
         await ble.disconnect();
-        if (mounted) {
-          setState(() {
-            connected = false;
-            speed = 0;
-            trackingOn = false;
-          });
-          _showSnackBar('기기 연결이 해제되었습니다.');
-        }
+        if (mounted) _showSnackBar('기기 연결이 해제되었습니다.');
       } catch (e) {
-        print('❌ [Main] 연결 해제 오류: $e');
-        if (mounted) {
-          _showSnackBar('연결 해제 중 오류가 발생했습니다.');
-        }
+        debugPrint('[Main] 연결 해제 오류: $e');
       }
-      return;
+    } else {
+      if (ble is TestBleService) {
+        await (ble as TestBleService).forceConnect();
+        if (mounted) _showSnackBar('테스트 기기에 연결되었습니다.');
+      } else {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) =>
+                DeviceSelectionScreen(
+                  bleService: ble,
+                  onConnectionChanged: (isConnected) {},
+                  onDeviceNameChanged: (name) {
+                    if (mounted) setState(() => deviceName = name);
+                  },
+                ),
+          ),
+        );
+      }
     }
-
-    // 연결되지 않은 상태면 연결 화면 열기
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => DeviceSelectionScreen(
-          bleService: ble,
-          onConnectionChanged: (isConnected) {
-            print('🔵 [Main] 연결 상태 업데이트: $isConnected');
-            if (mounted) {
-              setState(() {
-                connected = isConnected;
-                if (isConnected) {
-                  _showSnackBar('기기가 연결되었습니다.');
-                  sendState();
-                } else {
-                  speed = 0;
-                  trackingOn = false;
-                  _showSnackBar('기기 연결이 해제되었습니다.');
-                }
-              });
-            }
-          },
-          onDeviceNameChanged: (name) {
-            print('🔵 [Main] 기기 이름 업데이트: $name');
-            if (mounted) {
-              setState(() => deviceName = name);
-            }
-          },
-        ),
-      ),
-    );
   }
-  
+
   void _showSnackBar(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 2),
-      ),
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2))
     );
   }
 
-  // 현재 상태를 블루투스로 전송하는 함수
-  void sendState() {
-    if (!connected) {
-      print('⚠️ [BLE] 연결되지 않음 - 전송 취소');
-      return;
-    }
-    
+  // --- Command Wrappers ---
+
+  void _sendSpeedChange(int newSpeed) {
+    if (!connected) return;
+    int targetSpeed = newSpeed.clamp(0, 5);
+
     final data = {
-      'speed': speed, // 0이면 전원 OFF
-      'trackingOn': speed > 0 ? trackingOn : false,
+      'action': 'speed_change',
+      'speed': targetSpeed,
+      'timestamp': DateTime.now().toIso8601String(),
     };
-    
-    print('📤 [BLE] 데이터 전송: $data');
-    
-    try {
-      ble.sendJson(data);
-    } catch (e) {
-      print('❌ [BLE] 전송 실패: $e');
-      _showSnackBar('데이터 전송 실패');
-    }
+    ble.sendJson(data);
+  }
+
+  void _sendModeChange(bool isAiMode) {
+    if (!connected) return;
+
+    final data = {
+      'action': 'mode_change',
+      'mode': isAiMode ? 'ai' : 'manual',
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+    ble.sendJson(data);
   }
 
   @override
   Widget build(BuildContext context) {
     final screens = [
+      // 1. Dashboard
       DashboardScreen(
         connected: connected,
         onConnect: handleConnect,
         speed: speed,
         setSpeed: (v) {
-          setState(() => speed = v);
-          sendState();
-          // 속도 변경 시 분석 서비스에 알림 (안전하게 호출)
-          try {
-            AnalyticsService.onSpeedChanged(v);
-          } catch (e) {
-            print('❌ AnalyticsService.onSpeedChanged 오류: $e');
-          }
+          setState(() => speed = v.toInt());
+          _sendSpeedChange(v.toInt());
         },
         trackingOn: trackingOn,
         setTrackingOn: (v) {
           setState(() => trackingOn = v);
-          sendState();
-          // 얼굴 추적 상태 변경 시 분석 서비스에 알림 (안전하게 호출)
-          try {
-            if (v) {
-              AnalyticsService.onFaceTrackingStart();
-            } else {
-              AnalyticsService.onFaceTrackingStop();
-            }
-          } catch (e) {
-            print('❌ AnalyticsService.onFaceTracking 오류: $e');
-          }
+          _sendModeChange(v);
         },
         openAnalytics: () => setState(() => _index = 2),
         deviceName: deviceName,
-        selectedUserName: selectedUserName,
-        selectedUserImagePath: selectedUserImagePath,
+        // UserService에서 선택된 유저 정보 가져오기
+        selectedUserName: userService.getSelectedUsersText(),
+        selectedUserImagePath: userService.getSelectedUserImage(),
       ),
+
+      // 2. Control
       ControlScreen(
         connected: connected,
         deviceName: deviceName,
         onConnect: handleConnect,
-        selectedUserName: selectedUserName,
-        onUserSelectionChanged: (userName, userImagePath) {
-          setState(() {
-            selectedUserName = userName;
-            selectedUserImagePath = userImagePath;
-          });
-          // 사용자 변경 시 분석 서비스에 알림 (안전하게 호출)
-          try {
-            AnalyticsService.onUserChanged(userName);
-          } catch (e) {
-            print('❌ AnalyticsService.onUserChanged 오류: $e');
-          }
-        },
-        onUserDataSend: (data) {
-          // TODO: BLE를 통해 라즈베리파이로 사용자 데이터 전송
-          // 실제 구현 시 이미지를 Base64로 인코딩하여 전송해야 함
-          print('🔵 BLE 전송 준비: $data');
-          ble.sendJson(data);
+        // ControlScreen 내에서 UserService를 직접 쓰므로 파라미터 대폭 축소
+      ),
+
+      // 3. Analytics
+      ValueListenableBuilder<DashboardAnalytics>(
+        valueListenable: analyticsService.dashboardNotifier,
+        builder: (context, data, _) {
+          return AnalyticsScreen(
+            analyticsData: data, // DashboardAnalytics 타입
+            isLoading: false, // 필요 시 로딩 상태 관리 추가
+            onPeriodChanged: (period) {
+              analyticsService.requestAllStats(period);
+            },
+          );
         },
       ),
-      AnalyticsScreen(selectedUserName: selectedUserName),
+
+      // 4. Settings
+      SettingsScreen(
+        connected: connected,
+        sendJson: (data) => ble.sendJson(data),
+      ),
     ];
 
     return Scaffold(
@@ -289,82 +296,61 @@ class _MainShellState extends State<MainShell> {
         ),
       ),
       bottomNavigationBar: Container(
-        height: 89,
+        height: 80,
         decoration: BoxDecoration(
           color: Colors.white,
+          // 상단에 부드러운 곡선 추가
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
             ),
           ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildNavItem(
-              icon: Icons.dashboard_outlined,
-              label: '대시보드',
-              isSelected: _index == 0,
-              onTap: () => setState(() => _index = 0),
-            ),
-            _buildNavItem(
-              icon: Icons.control_camera,
-              label: '제어',
-              isSelected: _index == 1,
-              onTap: () => setState(() => _index = 1),
-            ),
-            _buildNavItem(
-              icon: Icons.analytics_outlined,
-              label: '분석',
-              isSelected: _index == 2,
-              onTap: () => setState(() => _index = 2),
-            ),
-            _buildNavItem(
-              icon: Icons.settings_outlined,
-              label: '설정',
-              isSelected: false,
-              onTap: () {}, // 기능 미구현
-            ),
+            _buildNavItem(Icons.dashboard_rounded, 'Dashboard', 0),
+            _buildNavItem(Icons.gamepad_rounded, 'Control', 1),
+            _buildNavItem(Icons.bar_chart_rounded, 'Analytics', 2),
+            _buildNavItem(Icons.settings_rounded, 'Settings', 3),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildNavItem({
-    required IconData icon,
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        width: 60,
-        padding: const EdgeInsets.symmetric(vertical: 8),
+  // ✨ [수정] Nav Item Builder
+  Widget _buildNavItem(IconData icon, String label, int index) {
+    final isSelected = _index == index;
+    // Green Theme Colors
+    final color = isSelected ? const Color(0xFF4CAF50) : const Color(0xFF9E9E9E);
+    final bgColor = isSelected ? const Color(0xFFE8F5E9) : Colors.transparent; // 연한 초록 배경
+
+    return GestureDetector(
+      onTap: () => setState(() => _index = index),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(20),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 24,
-              color: isSelected
-                  ? const Color(0xFF3A90FF)
-                  : const Color(0xFF838799),
-            ),
-            const SizedBox(height: 5),
+            Icon(icon, size: 24, color: color),
+            const SizedBox(height: 4),
             Text(
               label,
-              textAlign: TextAlign.center,
               style: TextStyle(
-                color: isSelected
-                    ? const Color(0xFF3A90FF)
-                    : const Color(0xFF838799),
-                fontSize: 13,
+                color: color,
+                fontSize: 11,
                 fontFamily: 'Sen',
-                fontWeight: FontWeight.w400,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
               ),
             ),
           ],
