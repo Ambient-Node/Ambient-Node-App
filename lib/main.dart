@@ -1,11 +1,22 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fl_chart/fl_chart.dart'; // flutter pub add fl_chart
+import 'package:fl_chart/fl_chart.dart';
+import 'package:camera/camera.dart'; // camera 패키지 필수
 
-void main() {
+// 전역 변수로 카메라 리스트 저장
+List<CameraDescription> _cameras = [];
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    _cameras = await availableCameras();
+  } on CameraException catch (e) {
+    debugPrint('Error: $e.code\nError Message: $e.description');
+  }
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.dark,
@@ -16,7 +27,7 @@ void main() {
 // ==========================================
 // 1. Constants & Theme Colors
 // ==========================================
-const Color kColorCyan = Color(0xFF06B6D4); // Cyan-500
+const Color kColorCyan = Color(0xFF06B6D4);
 const Color kColorSlate900 = Color(0xFF0F172A);
 const Color kColorSlate800 = Color(0xFF1E293B);
 const Color kColorSlate500 = Color(0xFF64748B);
@@ -26,8 +37,6 @@ const Color kColorBgLight = Color(0xFFF8FAFC);
 // ==========================================
 // 2. Global Widgets & Helpers
 // ==========================================
-
-// [공통 헤더 위젯]
 Widget _buildCommonHeader(BuildContext context, String title, {bool isDark = false}) {
   final Color contentColor = isDark ? Colors.white : kColorSlate900;
   return Padding(
@@ -63,7 +72,6 @@ Widget _buildCommonHeader(BuildContext context, String title, {bool isDark = fal
   );
 }
 
-// 페이지 전환 애니메이션
 Route _createRoute(Widget page) {
   return PageRouteBuilder(
     pageBuilder: (context, animation, secondaryAnimation) => page,
@@ -82,8 +90,8 @@ Route _createRoute(Widget page) {
 // ==========================================
 class FanState {
   bool isOn;
-  int speed; // 1 ~ 5
-  String mode; // normal, sleep
+  int speed;
+  String mode;
   bool oscillation;
   bool timerOn;
   double pan;
@@ -97,6 +105,22 @@ class FanState {
     this.timerOn = false,
     this.pan = 0.0,
     this.tilt = 0.0,
+  });
+}
+
+class UserModel {
+  String id;
+  String name;
+  bool isActive;
+  Color? profileColor;
+  String? imagePath;
+
+  UserModel({
+    required this.id,
+    required this.name,
+    this.isActive = true,
+    this.profileColor,
+    this.imagePath,
   });
 }
 
@@ -135,89 +159,704 @@ class AmbientNodeApp extends StatelessWidget {
 // ==========================================
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
-
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
-
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<double> _widthAnimation;
-
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(duration: const Duration(milliseconds: 2500), vsync: this);
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.5, curve: Curves.easeOut)),
-    );
-
-    _widthAnimation = Tween<double>(begin: 0.0, end: 40.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.3, 0.8, curve: Curves.easeOut)),
-    );
-
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.5, curve: Curves.easeOut)));
+    _widthAnimation = Tween<double>(begin: 0.0, end: 40.0).animate(CurvedAnimation(parent: _controller, curve: const Interval(0.3, 0.8, curve: Curves.easeOut)));
     _controller.forward();
-
     Timer(const Duration(seconds: 4), () {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => const HomeScreen(),
-          transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-          transitionDuration: const Duration(milliseconds: 1000),
-        ),
-      );
+      Navigator.of(context).pushReplacement(PageRouteBuilder(pageBuilder: (_, __, ___) => const HomeScreen(), transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c), transitionDuration: const Duration(milliseconds: 1000)));
     });
   }
-
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
+  void dispose() { _controller.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 200, height: 200,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: kColorCyan.withOpacity(0.1),
-              boxShadow: [BoxShadow(color: kColorCyan.withOpacity(0.2), blurRadius: 60, spreadRadius: 20)],
-            ),
+      body: Stack(alignment: Alignment.center, children: [
+        Container(width: 200, height: 200, decoration: BoxDecoration(shape: BoxShape.circle, color: kColorCyan.withOpacity(0.1), boxShadow: [BoxShadow(color: kColorCyan.withOpacity(0.2), blurRadius: 60, spreadRadius: 20)])),
+        Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          FadeTransition(opacity: _fadeAnimation, child: RichText(text: const TextSpan(style: TextStyle(fontSize: 32, fontWeight: FontWeight.w300, color: kColorSlate800, letterSpacing: 4), children: [TextSpan(text: 'ambient '), TextSpan(text: 'node', style: TextStyle(fontWeight: FontWeight.bold, color: kColorCyan))]))),
+          const SizedBox(height: 20), AnimatedBuilder(animation: _widthAnimation, builder: (context, child) => Container(height: 1, width: _widthAnimation.value, color: kColorSlate200)),
+          const SizedBox(height: 16), FadeTransition(opacity: _fadeAnimation, child: const Text('AIR CONTROL SYSTEM', style: TextStyle(fontSize: 10, letterSpacing: 3, color: kColorSlate500))),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ==========================================
+// 6. Home Screen
+// ==========================================
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+  FanState fanState = FanState();
+  late AnimationController _bladeController;
+  late AnimationController _swingController;
+  @override
+  void initState() {
+    super.initState();
+    _bladeController = AnimationController(vsync: this, duration: const Duration(seconds: 1));
+    _swingController = AnimationController(vsync: this, duration: const Duration(seconds: 6));
+  }
+  @override
+  void dispose() { _bladeController.dispose(); _swingController.dispose(); super.dispose(); }
+  void _updateState() {
+    setState(() {
+      if (fanState.isOn) {
+        double speedFactor = 1.0 - (fanState.speed * 0.14);
+        double duration = fanState.mode == 'sleep' ? 1.5 : speedFactor;
+        _bladeController.duration = Duration(milliseconds: (duration * 1000).toInt());
+        if (!_bladeController.isAnimating) _bladeController.repeat();
+        if (fanState.oscillation && !_swingController.isAnimating) { _swingController.repeat(reverse: true); } else if (!fanState.oscillation && _swingController.isAnimating) { _swingController.stop(); }
+      } else { _bladeController.stop(); _swingController.stop(); }
+    });
+  }
+  void _showMenu(BuildContext context) {
+    showGeneralDialog(
+      context: context, barrierDismissible: true, barrierLabel: "Menu", barrierColor: Colors.black.withOpacity(0.5), transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (ctx, anim1, anim2) {
+        return Align(alignment: Alignment.centerRight, child: Material(color: Colors.transparent, child: Container(width: MediaQuery.of(context).size.width * 0.65, height: double.infinity, decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.only(topLeft: Radius.circular(0))), padding: const EdgeInsets.fromLTRB(32, 60, 32, 0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Transform.translate(offset: const Offset(0, -1.5), child: const Text('Menu', style: TextStyle(fontFamily: 'Sen', fontSize: 26, fontWeight: FontWeight.bold, color: kColorSlate900))), GestureDetector(onTap: () => Navigator.pop(ctx), child: Container(width: 40, height: 40, decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle), child: const Icon(Icons.close, color: kColorSlate900, size: 20)))]),
+          const SizedBox(height: 60),
+          Expanded(child: Column(children: [
+            _buildCustomMenuItem(icon: Icons.bluetooth, text: '기기 연결', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DeviceScanScreen()))),
+            _buildCustomMenuItem(icon: Icons.person_outline_rounded, text: '사용자 관리', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserManagementScreen()))),
+            _buildCustomMenuItem(icon: Icons.phone_iphone_rounded, text: '리모콘', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RemoteScreen(fanState: fanState, onUpdate: (newState) { setState(() { fanState = newState; }); })))),
+            _buildCustomMenuItem(icon: Icons.bar_chart_rounded, text: '사용 분석', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen()))),
+            _buildCustomMenuItem(icon: Icons.settings_outlined, text: '설정', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+          ])),
+        ]))));
+      },
+      transitionBuilder: (ctx, anim1, anim2, child) => SlideTransition(position: Tween(begin: const Offset(1, 0), end: const Offset(0, 0)).animate(CurvedAnimation(parent: anim1, curve: Curves.easeOutCubic)), child: child),
+    );
+  }
+  Widget _buildCustomMenuItem({required IconData icon, required String text, required VoidCallback onTap}) {
+    return GestureDetector(onTap: onTap, behavior: HitTestBehavior.translucent, child: Padding(padding: const EdgeInsets.symmetric(vertical: 20), child: Row(children: [Icon(icon, color: kColorSlate500, size: 24), const SizedBox(width: 24), Transform.translate(offset: const Offset(0, -2.0), child: Text(text, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w500, color: kColorSlate800, letterSpacing: -0.3, height: 1.0)))])));
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: AnimatedContainer(duration: const Duration(seconds: 1), decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: fanState.isOn ? [const Color(0xFFEFF6FF), const Color(0xFFCFFAFE)] : [const Color(0xFFF8FAFC), const Color(0xFFE2E8F0)])),
+        child: SafeArea(child: Column(children: [
+          Padding(padding: const EdgeInsets.all(24.0), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('AMBIENT', style: TextStyle(fontSize: 12, letterSpacing: 2, color: kColorSlate500)), Row(children: const [Text('NODE', style: TextStyle(fontSize: 12, letterSpacing: 2, fontWeight: FontWeight.bold, color: kColorCyan))])]), IconButton(icon: const Icon(Icons.menu, color: kColorSlate500), onPressed: () => _showMenu(context))])),
+          Expanded(child: Stack(alignment: Alignment.topCenter, children: [
+            Fan3DVisual(fanState: fanState, bladeAnimation: _bladeController, swingAnimation: _swingController),
+            AnimatedOpacity(opacity: fanState.isOn ? 1.0 : 0.0, duration: const Duration(milliseconds: 500), child: Positioned(top: 40, child: Container(padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5), decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.white.withOpacity(0.8), width: 1), boxShadow: [BoxShadow(color: kColorCyan.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))]), child: Row(mainAxisSize: MainAxisSize.min, children: const [Icon(Icons.thermostat, size: 14, color: kColorSlate800), SizedBox(width: 6), Text("24°C", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kColorSlate800))])))),
+          ])),
+          SizedBox(height: 60, child: AnimatedSwitcher(duration: const Duration(milliseconds: 300), child: Text(fanState.isOn ? (fanState.mode == 'sleep' ? '수면풍' : '풍속 ${fanState.speed}') : '대기 모드', key: ValueKey(fanState.isOn ? fanState.mode + fanState.speed.toString() : 'off'), style: TextStyle(fontFamily: 'Sen', fontSize: 25, fontWeight: FontWeight.w300, color: fanState.isOn ? kColorSlate800 : kColorSlate500.withOpacity(0.5))))),
+          const SizedBox(height: 20),
+          ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(40)), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20), child: Container(color: Colors.white.withOpacity(0.7), padding: const EdgeInsets.fromLTRB(32, 32, 32, 40), child: Column(children: [
+            Opacity(opacity: fanState.isOn ? 1.0 : 0.3, child: Container(height: 60, decoration: BoxDecoration(color: kColorSlate200.withOpacity(0.5), borderRadius: BorderRadius.circular(30)), child: Row(children: List.generate(5, (index) { int s = index + 1; return Expanded(child: GestureDetector(onTap: () { if (fanState.isOn) { fanState.speed = s; _updateState(); } }, child: Container(color: Colors.transparent, child: Center(child: AnimatedContainer(duration: const Duration(milliseconds: 300), width: fanState.speed == s ? 14 : 8, height: fanState.speed == s ? 14 : 8, decoration: BoxDecoration(shape: BoxShape.circle, color: fanState.speed == s ? kColorCyan : kColorSlate500.withOpacity(0.3), boxShadow: fanState.speed == s ? [const BoxShadow(color: kColorCyan, blurRadius: 10)] : [])))))); })))),
+            const SizedBox(height: 30),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              _buildCircleBtn(Icons.timer_outlined, '타이머', active: fanState.timerOn, onTap: () { fanState.timerOn = !fanState.timerOn; _updateState(); }),
+              _buildCircleBtn(Icons.sync, '회전', active: fanState.oscillation, onTap: () { fanState.oscillation = !fanState.oscillation; _updateState(); }),
+              _buildCircleBtn(Icons.nights_stay, '수면풍', active: fanState.mode == 'sleep', onTap: () { fanState.mode = fanState.mode == 'sleep' ? 'normal' : 'sleep'; _updateState(); }),
+              _buildCircleBtn(Icons.gamepad, '리모콘', active: false, isRemote: true, onTap: () { Navigator.push(context, MaterialPageRoute(builder: (_) => RemoteScreen(fanState: fanState, onUpdate: (newState) { setState(() { fanState = newState; }); }))); }),
+            ]),
+            const SizedBox(height: 30),
+            GestureDetector(onTap: () { fanState.isOn = !fanState.isOn; _updateState(); }, child: AnimatedContainer(duration: const Duration(milliseconds: 500), width: double.infinity, height: 60, decoration: BoxDecoration(gradient: fanState.isOn ? const LinearGradient(colors: [kColorCyan, Color(0xFF3B82F6)]) : const LinearGradient(colors: [kColorSlate800, kColorSlate900]), borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: fanState.isOn ? kColorCyan.withOpacity(0.4) : Colors.black12, blurRadius: 20, offset: const Offset(0, 10))]), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.power_settings_new, color: Colors.white), const SizedBox(width: 8), Text(fanState.isOn ? '전원 끄기' : '전원 켜기', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))]))),
+          ])))),
+        ])),
+      ),
+    );
+  }
+  Widget _buildCircleBtn(IconData icon, String label, {bool active = false, VoidCallback? onTap, bool isRemote = false}) {
+    return GestureDetector(onTap: fanState.isOn ? onTap : null, child: Opacity(opacity: fanState.isOn ? 1.0 : 0.5, child: Column(children: [AnimatedContainer(duration: const Duration(milliseconds: 200), width: 56, height: 56, decoration: BoxDecoration(color: active ? kColorCyan.withOpacity(0.1) : (isRemote ? kColorSlate200.withOpacity(0.5) : kColorBgLight), borderRadius: BorderRadius.circular(18), border: Border.all(color: active ? kColorCyan : Colors.transparent, width: 2)), child: Icon(icon, color: active ? kColorCyan : kColorSlate500, size: 24)), const SizedBox(height: 8), Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: kColorSlate500))])));
+  }
+}
+
+// ==========================================
+// 7. Settings Screen
+// ==========================================
+class SettingsScreen extends StatefulWidget { const SettingsScreen({super.key}); @override State<SettingsScreen> createState() => _SettingsScreenState(); }
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _notiEnabled = true; bool _autoUpdate = false;
+  @override Widget build(BuildContext context) {
+    return Scaffold(backgroundColor: const Color(0xFFF8FAFC), body: SafeArea(child: Column(children: [_buildCommonHeader(context, '설정'), Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10), children: [_buildSectionHeader('일반'), _buildSettingsTile('알림 설정', trailing: Switch(value: _notiEnabled, onChanged: (v) => setState(() => _notiEnabled = v), activeColor: kColorCyan)), _buildSettingsTile('언어 설정', trailing: const Text('한국어', style: TextStyle(color: kColorSlate500, fontSize: 14))), const SizedBox(height: 24), _buildSectionHeader('기기 관리'), _buildSettingsTile('자동 펌웨어 업데이트', trailing: Switch(value: _autoUpdate, onChanged: (v) => setState(() => _autoUpdate = v), activeColor: kColorCyan)), _buildSettingsTile('기기 초기화', textColor: Colors.redAccent, onTap: () {}), const SizedBox(height: 24), _buildSectionHeader('앱 정보'), _buildSettingsTile('버전 정보', trailing: const Text('v1.0.2', style: TextStyle(color: kColorSlate500, fontSize: 14))), _buildSettingsTile('이용 약관', onTap: () {}), _buildSettingsTile('개인정보 처리방침', onTap: () {})]))])));
+  }
+  Widget _buildSectionHeader(String title) { return Padding(padding: const EdgeInsets.only(bottom: 12, left: 4), child: Text(title, style: const TextStyle(color: kColorSlate500, fontSize: 12, fontWeight: FontWeight.bold))); }
+  Widget _buildSettingsTile(String title, {Widget? trailing, Color? textColor, VoidCallback? onTap}) { return Container(margin: const EdgeInsets.only(bottom: 10), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 10)]), child: ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4), title: Transform.translate(offset: const Offset(0, -1), child: Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: textColor ?? kColorSlate900, letterSpacing: -0.3))), trailing: trailing ?? const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: kColorSlate200), onTap: onTap)); }
+}
+
+// ==========================================
+// 8. Visuals
+// ==========================================
+class FanBladePainter extends CustomPainter {
+  final Color color; FanBladePainter({required this.color});
+  @override void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2); final radius = size.width / 2;
+    for (int i = 0; i < 3; i++) {
+      canvas.save(); canvas.translate(center.dx, center.dy); canvas.rotate((i * 120) * (math.pi / 180));
+      final paint = Paint()..shader = RadialGradient(colors: [color, color.withOpacity(0.6)], stops: const [0.0, 1.0], center: Alignment.bottomCenter, radius: 0.8).createShader(Rect.fromCircle(center: Offset.zero, radius: radius));
+      final path = Path(); path.moveTo(0, 0); path.quadraticBezierTo(radius * 0.3, -radius * 0.15, radius * 0.6, -radius * 0.25); path.cubicTo(radius * 0.9, -radius * 0.2, radius * 1.0, radius * 0.1, radius * 0.7, radius * 0.4); path.quadraticBezierTo(radius * 0.3, radius * 0.4, 0, 0); path.close();
+      canvas.drawPath(path, paint); canvas.restore();
+    }
+  }
+  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+class Fan3DVisual extends StatelessWidget {
+  final FanState fanState; final AnimationController bladeAnimation; final AnimationController swingAnimation;
+  const Fan3DVisual({super.key, required this.fanState, required this.bladeAnimation, required this.swingAnimation});
+  @override Widget build(BuildContext context) {
+    final swingAnim = Tween<double>(begin: -0.05, end: 0.05).animate(CurvedAnimation(parent: swingAnimation, curve: Curves.easeInOut));
+    return LayoutBuilder(builder: (context, constraints) {
+      return AnimatedBuilder(animation: swingAnimation, builder: (context, child) {
+        double rotationY = 0; if (fanState.oscillation && fanState.isOn) { rotationY = swingAnim.value * 2 * math.pi; }
+        return Transform(alignment: Alignment.center, transform: Matrix4.identity()..setEntry(3, 2, 0.001)..rotateY(rotationY), child: Stack(alignment: Alignment.center, children: [
+          Container(width: 280, height: 280, decoration: BoxDecoration(shape: BoxShape.circle, gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: fanState.isOn ? [kColorCyan.withOpacity(0.2), kColorCyan.withOpacity(0.05)] : [kColorSlate200, Colors.white]), border: Border.all(color: fanState.isOn ? kColorCyan.withOpacity(0.4) : kColorSlate200, width: 2), boxShadow: fanState.isOn ? [BoxShadow(color: kColorCyan.withOpacity(0.15), blurRadius: 30, spreadRadius: 5), const BoxShadow(color: Colors.white, blurRadius: 10, spreadRadius: -5, offset: Offset(-5, -5))] : []), child: Container(margin: const EdgeInsets.all(10), decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white.withOpacity(0.5), width: 1)))),
+          if (fanState.isOn) const WindParticles(),
+          RotationTransition(turns: bladeAnimation, child: CustomPaint(size: const Size(260, 260), painter: FanBladePainter(color: fanState.isOn ? kColorCyan : kColorSlate200))),
+          Container(width: 50, height: 50, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white, gradient: RadialGradient(colors: [Colors.white, kColorSlate200.withOpacity(0.5)], stops: const [0.5, 1.0]), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)], border: Border.all(color: Colors.white, width: 2)), child: Center(child: Container(width: 10, height: 10, decoration: BoxDecoration(shape: BoxShape.circle, color: fanState.isOn ? kColorCyan.withOpacity(0.5) : kColorSlate200))))
+        ]));
+      });
+    });
+  }
+}
+class WindParticles extends StatefulWidget { const WindParticles({super.key}); @override State<WindParticles> createState() => _WindParticlesState(); }
+class _WindParticlesState extends State<WindParticles> with SingleTickerProviderStateMixin {
+  late AnimationController _controller; final List<_Particle> _particles = List.generate(8, (index) => _Particle());
+  @override void initState() { super.initState(); _controller = AnimationController(duration: const Duration(seconds: 2), vsync: this)..repeat(); }
+  @override void dispose() { _controller.dispose(); super.dispose(); }
+  @override Widget build(BuildContext context) { return AnimatedBuilder(animation: _controller, builder: (context, child) { return Stack(children: _particles.map((p) { final progress = (_controller.value + p.offset) % 1.0; final dy = -150 * progress; final opacity = 1.0 - progress; return Positioned(left: 140 + (math.cos(p.angle) * p.radius), top: 140 + (math.sin(p.angle) * p.radius) + dy, child: Opacity(opacity: opacity, child: Container(width: p.size, height: p.size, decoration: const BoxDecoration(color: kColorCyan, shape: BoxShape.circle)))); }).toList()); }); }
+}
+class _Particle { double offset = math.Random().nextDouble(); double angle = math.Random().nextDouble() * 2 * math.pi; double radius = math.Random().nextDouble() * 50; double size = math.Random().nextDouble() * 4 + 2; }
+
+// ==========================================
+// 9. Other Screens
+// ==========================================
+class RemoteScreen extends StatefulWidget { final FanState fanState; final Function(FanState) onUpdate; const RemoteScreen({super.key, required this.fanState, required this.onUpdate}); @override State<RemoteScreen> createState() => _RemoteScreenState(); }
+class _RemoteScreenState extends State<RemoteScreen> {
+  late FanState localState; @override void initState() { super.initState(); localState = widget.fanState; }
+  void _adjustPan(double delta) { setState(() { localState.pan = (localState.pan + delta).clamp(-45.0, 45.0); }); widget.onUpdate(localState); }
+  void _adjustTilt(double delta) { setState(() { localState.tilt = (localState.tilt + delta).clamp(-30.0, 30.0); }); widget.onUpdate(localState); }
+  void _center() { setState(() { localState.pan = 0; localState.tilt = 0; }); widget.onUpdate(localState); }
+  @override Widget build(BuildContext context) {
+    return Scaffold(backgroundColor: const Color(0xFFF8FAFC), body: SafeArea(child: Column(children: [_buildCommonHeader(context, '리모콘', isDark: false), Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Container(margin: const EdgeInsets.symmetric(horizontal: 40), padding: const EdgeInsets.all(24), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.5), blurRadius: 20, offset: const Offset(0, 8))]), child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [_buildValueBox('좌우 각도 (PAN)', localState.pan.toInt().toString()), Container(width: 1, height: 40, color: kColorSlate200), _buildValueBox('상하 각도 (TILT)', (-localState.tilt).toInt().toString())])),
+      const SizedBox(height: 60),
+      Container(width: 300, height: 300, decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.6), blurRadius: 30, offset: const Offset(0, 10)), const BoxShadow(color: Colors.white, blurRadius: 20, spreadRadius: -5)]), child: Stack(alignment: Alignment.center, children: [Container(width: 280, height: 280, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: kColorSlate200.withOpacity(0.3)))), Container(width: 180, height: 180, decoration: BoxDecoration(shape: BoxShape.circle, color: kColorBgLight)), Positioned(top: 20, child: _dpadBtn(Icons.keyboard_arrow_up, () => _adjustTilt(15))), Positioned(bottom: 20, child: _dpadBtn(Icons.keyboard_arrow_down, () => _adjustTilt(-15))), Positioned(left: 20, child: _dpadBtn(Icons.keyboard_arrow_left, () => _adjustPan(-15))), Positioned(right: 20, child: _dpadBtn(Icons.keyboard_arrow_right, () => _adjustPan(15))), GestureDetector(onTap: _center, child: Container(width: 80, height: 80, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [kColorCyan, Color(0xFF3B82F6)]), boxShadow: [BoxShadow(color: kColorCyan.withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 4))]), child: const Icon(Icons.settings_backup_restore, color: Colors.white, size: 32)))])),
+      const SizedBox(height: 60),
+      Text(localState.oscillation ? '회전 모드 실행 중' : '수동 제어 모드', style: TextStyle(color: localState.oscillation ? kColorCyan : kColorSlate500, fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: -0.5))
+    ]))])));
+  }
+  Widget _dpadBtn(IconData icon, VoidCallback onTap) { return GestureDetector(onTap: onTap, child: Container(width: 60, height: 60, decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.8), blurRadius: 8, offset: const Offset(0, 4))]), child: Icon(icon, color: kColorSlate500, size: 28))); }
+  Widget _buildValueBox(String label, String value) { return Column(children: [Text(label, style: const TextStyle(color: kColorSlate500, fontSize: 12, fontWeight: FontWeight.w500)), const SizedBox(height: 8), Text('$value°', style: const TextStyle(color: kColorSlate900, fontSize: 24, fontFamily: 'Pretendard', fontWeight: FontWeight.bold))]); }
+}
+class DeviceScanScreen extends StatefulWidget { const DeviceScanScreen({super.key}); @override State<DeviceScanScreen> createState() => _DeviceScanScreenState(); }
+class _DeviceScanScreenState extends State<DeviceScanScreen> with SingleTickerProviderStateMixin {
+  late AnimationController _radarController; @override void initState() { super.initState(); _radarController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(); }
+  @override void dispose() { _radarController.dispose(); super.dispose(); }
+  @override Widget build(BuildContext context) { return Scaffold(backgroundColor: Colors.white, body: SafeArea(child: Column(children: [_buildCommonHeader(context, '기기 연결'), const SizedBox(height: 20), Stack(alignment: Alignment.center, children: [SizedBox(width: 200, height: 200, child: AnimatedBuilder(animation: _radarController, builder: (context, child) { return Stack(children: [0, 1, 2].map((i) { double radius = 100 * ((_radarController.value + i * 0.33) % 1.0); double opacity = 1.0 - ((_radarController.value + i * 0.33) % 1.0); return Center(child: Container(width: radius * 2, height: radius * 2, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: kColorCyan.withOpacity(opacity), width: 1.5)))); }).toList()); })), const Icon(Icons.bluetooth, size: 40, color: Color(0xFF00BCD4))]), const SizedBox(height: 20), const Text("주변 기기 검색 중...", style: TextStyle(color: Colors.grey, fontSize: 14, letterSpacing: -0.5)), const SizedBox(height: 40), Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 24), children: [_deviceTile("Ambient Node #1"), const SizedBox(height: 16), _deviceTile("Ambient Node #2")]))]))); }
+  Widget _deviceTile(String name) { return Container(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.5), blurRadius: 10, offset: const Offset(0, 4))], border: Border.all(color: kColorSlate200)), child: Row(children: [Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: const Color(0xFFE0F7FA), borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.air, color: Color(0xFF00BCD4))), const SizedBox(width: 16), Transform.translate(offset: const Offset(0, -1.0), child: Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.5))), const Spacer(), ElevatedButton(onPressed: () {}, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BCD4), foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10)), child: const Text("연결", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)))])); }
+}
+class AnalyticsScreen extends StatelessWidget { const AnalyticsScreen({super.key}); @override Widget build(BuildContext context) { return Scaffold(backgroundColor: const Color(0xFFF5F7FA), body: SafeArea(child: Column(children: [_buildCommonHeader(context, '사용 분석'), Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 24), children: [Container(padding: const EdgeInsets.all(24), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 20)]), child: Column(children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Row(children: [const Icon(Icons.bar_chart, color: kColorSlate800), const SizedBox(width: 8), Transform.translate(offset: const Offset(0, -1), child: const Text("주간 리포트", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: -0.5)))]), Transform.translate(offset: const Offset(0, -1), child: const Text("24.5h", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF00BCD4), letterSpacing: -1.0)))]), const SizedBox(height: 30), SizedBox(height: 200, child: BarChart(BarChartData(gridData: const FlGridData(show: false), titlesData: FlTitlesData(leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (val, _) { const days = ['월', '화', '수', '목', '금', '토', '일']; if (val.toInt() >= 0 && val.toInt() < days.length) { return Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(days[val.toInt()], style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w500))); } return const Text(""); }))), borderData: FlBorderData(show: false), barGroups: List.generate(7, (index) { return BarChartGroupData(x: index, barRods: [BarChartRodData(toY: [3, 5, 2, 6, 4, 3.5, 1][index].toDouble(), color: index == 3 ? const Color(0xFF00BCD4) : const Color(0xFFE0F7FA), width: 16, borderRadius: BorderRadius.circular(4))]); }))))]))]))]))); } }
+
+// ==========================================
+// 10. User Management Screens (Real Camera Integration)
+// ==========================================
+class UserManagementScreen extends StatefulWidget {
+  const UserManagementScreen({super.key});
+  @override
+  State<UserManagementScreen> createState() => _UserManagementScreenState();
+}
+
+class _UserManagementScreenState extends State<UserManagementScreen> {
+  // 초기 데이터 없음 (빈 리스트)
+  final List<UserModel> _users = [];
+
+  // [수정됨] 스위치 토글 로직 (최대 2명 선택 제한)
+  void _toggleUser(int index, bool value) {
+    if (value) {
+      // 켜려고 할 때, 이미 2명이 켜져있는지 확인
+      int activeCount = _users.where((u) => u.isActive).length;
+      if (activeCount >= 2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("제어는 최대 2명까지만 선택할 수 있습니다."),
+            backgroundColor: kColorSlate800,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
           ),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              FadeTransition(
-                opacity: _fadeAnimation,
-                child: RichText(
-                  text: const TextSpan(
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.w300, color: kColorSlate800, letterSpacing: 4),
-                    children: [
-                      TextSpan(text: 'ambient '),
-                      TextSpan(text: 'node', style: TextStyle(fontWeight: FontWeight.bold, color: kColorCyan)),
-                    ],
+        );
+        return; // 변경 취소
+      }
+    }
+
+    setState(() {
+      _users[index].isActive = value;
+    });
+  }
+
+  void _addUser(UserModel user) {
+    setState(() {
+      // 새로 추가된 유저는 기본적으로 비활성 상태로 추가하거나,
+      // 현재 활성 인원이 2명 미만이면 활성 상태로 추가하는 로직을 넣을 수 있음.
+      // 여기서는 안전하게 비활성(false) 상태로 추가하겠습니다. (선택은 사용자가 직접)
+      user.isActive = false;
+      _users.add(user);
+    });
+  }
+
+  void _deleteUser(int index) {
+    setState(() {
+      _users.removeAt(index);
+    });
+  }
+
+  // [수정됨] 사용자 추가 버튼 핸들러 (제한 없음)
+  void _handleAddUser() async {
+    final newUser = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AddUserScreen()),
+    );
+    if (newUser != null && newUser is UserModel) {
+      _addUser(newUser);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    int activeCount = _users.where((u) => u.isActive).length;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildCommonHeader(context, '사용자 관리'),
+
+            // 상단 상태 바
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: Color(0xFF1565C0), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded( // 텍스트 길어질 경우 대비
+                    child: Transform.translate(
+                      offset: const Offset(0, -1),
+                      child: RichText(
+                        text: TextSpan(
+                          style: const TextStyle(color: Color(0xFF1565C0), fontSize: 14, fontFamily: 'Pretendard'),
+                          children: [
+                            const TextSpan(text: "현재 "),
+                            TextSpan(text: "$activeCount", style: const TextStyle(fontWeight: FontWeight.bold)),
+                            const TextSpan(text: "명이 선택되었습니다. (전체 "),
+                            TextSpan(text: "${_users.length}", style: const TextStyle(fontWeight: FontWeight.w500)),
+                            const TextSpan(text: "명)"),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                ],
+              ),
+            ),
+
+            // 리스트가 비었을 때 안내 UI (Empty State)
+            Expanded(
+              child: _users.isEmpty
+                  ? _buildEmptyState()
+                  : ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                itemCount: _users.length,
+                separatorBuilder: (c, i) => const SizedBox(height: 16),
+                itemBuilder: (context, index) {
+                  final user = _users[index];
+                  return _userTile(user, index);
+                },
+              ),
+            ),
+
+            // 하단 버튼
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _handleAddUser,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kColorCyan,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
+                  child: const Text("사용자 추가", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                 ),
               ),
-              const SizedBox(height: 20),
-              AnimatedBuilder(
-                animation: _widthAnimation,
-                builder: (context, child) => Container(height: 1, width: _widthAnimation.value, color: kColorSlate200),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 안내 UI (변경 없음)
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 120,
+            height: 120,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.5), blurRadius: 30, offset: const Offset(0, 10))],
+            ),
+            child: const Center(
+              child: Icon(Icons.person_add_alt_1_rounded, size: 48, color: kColorCyan),
+            ),
+          ),
+          const SizedBox(height: 32),
+          const Text(
+            "등록된 사용자가 없습니다",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kColorSlate900),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            "나와 가족을 등록하여\nAI 맞춤형 바람을 경험해보세요.",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: kColorSlate500, height: 1.5),
+          ),
+          const SizedBox(height: 60),
+        ],
+      ),
+    );
+  }
+
+  Widget _userTile(UserModel user, int index) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: user.isActive ? kColorCyan.withOpacity(0.3) : Colors.grey.shade200, width: user.isActive ? 1.5 : 1), // 활성 상태일 때 테두리 강조
+        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 10)],
+      ),
+      child: Row(
+        children: [
+          // 좌우 반전된 프로필 이미지 표시
+          Container(
+            width: 48,
+            height: 48,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: kColorBgLight,
+            ),
+            child: ClipOval(
+              child: user.imagePath != null
+                  ? Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.rotationY(math.pi), // 좌우반전 유지
+                child: Image.file(File(user.imagePath!), fit: BoxFit.cover),
+              )
+                  : const Icon(Icons.face, color: kColorSlate500),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Transform.translate(
+                offset: const Offset(0, -1),
+                child: Text(user.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
               ),
-              const SizedBox(height: 16),
-              FadeTransition(
-                opacity: _fadeAnimation,
-                child: const Text('AIR CONTROL SYSTEM', style: TextStyle(fontSize: 10, letterSpacing: 3, color: kColorSlate500)),
+              const SizedBox(height: 4),
+              Text(
+                user.isActive ? "활성" : "비활성",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: user.isActive ? kColorCyan : Colors.grey,
+                  fontWeight: user.isActive ? FontWeight.bold : FontWeight.normal,
+                ),
               ),
             ],
+          ),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.grey),
+            onPressed: () => _deleteUser(index),
+          ),
+          Switch(
+            value: user.isActive,
+            onChanged: (v) => _toggleUser(index, v),
+            activeColor: kColorCyan,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AddUserScreen extends StatefulWidget {
+  const AddUserScreen({super.key});
+  @override
+  State<AddUserScreen> createState() => _AddUserScreenState();
+}
+
+class _AddUserScreenState extends State<AddUserScreen> {
+  CameraController? _controller;
+  String? _capturedImagePath;
+  final TextEditingController _nameController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _initCamera();
+  }
+
+  Future<void> _initCamera() async {
+    // 카메라 리스트 안전하게 로드
+    if (_cameras.isEmpty) {
+      try {
+        _cameras = await availableCameras();
+      } catch (e) {
+        debugPrint("Camera Load Error: $e");
+      }
+    }
+    if (_cameras.isEmpty) return;
+
+    // 전면 카메라 우선 선택
+    final frontCamera = _cameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.front,
+      orElse: () => _cameras.first,
+    );
+
+    // 전체 화면 비율에 맞추기 위해 해상도 높임 (Preset.high or max)
+    _controller = CameraController(
+      frontCamera,
+      ResolutionPreset.high,
+      enableAudio: false,
+      imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
+    );
+
+    try {
+      await _controller!.initialize();
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint("Camera Init Error: $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _takePicture() async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    if (_controller!.value.isTakingPicture) return;
+
+    try {
+      final image = await _controller!.takePicture();
+      if (mounted) {
+        setState(() {
+          _capturedImagePath = image.path;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error capturing image: $e");
+    }
+  }
+
+  void _register() {
+    if (_nameController.text.isEmpty) return;
+    final newUser = UserModel(
+      id: DateTime.now().toString(),
+      name: _nameController.text,
+      imagePath: _capturedImagePath,
+      profileColor: Colors.grey,
+    );
+    Navigator.pop(context, newUser);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
+    return Scaffold(
+      backgroundColor: Colors.white, // 앱 테마와 맞춤
+      resizeToAvoidBottomInset: true, // 키보드 올라올 때 대응
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 1. Camera Layer (Full Screen)
+          if (_controller != null && _controller!.value.isInitialized)
+            SizedBox.expand(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _controller!.value.previewSize!.height,
+                  height: _controller!.value.previewSize!.width,
+                  // 결과 사진이 있으면 이미지 파일 표시 (거울 모드 적용)
+                  child: _capturedImagePath != null
+                      ? Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.rotationY(math.pi), // 좌우 반전
+                    child: Image.file(File(_capturedImagePath!), fit: BoxFit.cover),
+                  )
+                      : CameraPreview(_controller!),
+                ),
+              ),
+            )
+          else
+            const Center(child: CircularProgressIndicator(color: kColorCyan)),
+
+          // 2. Face Guide Overlay (촬영 중에만 표시)
+          if (_capturedImagePath == null)
+            CustomPaint(
+              size: size,
+              painter: FaceOverlayPainter(),
+            ),
+
+          // 3. Top Buttons (Close)
+          Positioned(
+            top: 50,
+            left: 20,
+            child: CircleAvatar(
+              backgroundColor: Colors.black.withOpacity(0.3),
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+
+          // 4. Bottom Controls (Inputs or Capture Button)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: _capturedImagePath == null
+              // [촬영 모드 UI]
+                  ? Padding(
+                padding: const EdgeInsets.only(bottom: 60),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      "얼굴을 가이드 라인에 맞춰주세요",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        shadows: [Shadow(color: Colors.black45, blurRadius: 4)],
+                      ),
+                    ),
+                    const SizedBox(height: 30),
+                    GestureDetector(
+                      onTap: _takePicture,
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.2), // 반투명 테두리
+                          border: Border.all(color: Colors.white, width: 4),
+                        ),
+                        child: Center(
+                          child: Container(
+                            width: 64,
+                            height: 64,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+              // [결과 확인 및 입력 UI]
+                  : Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(24, 30, 24, 40),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9), // 밝은 반투명 배경
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, -5))
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("사용자 등록", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kColorSlate900)),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: _nameController,
+                      style: const TextStyle(color: kColorSlate900),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.person_outline, color: kColorSlate500),
+                        hintText: "이름을 입력하세요",
+                        hintStyle: const TextStyle(color: kColorSlate500),
+                        filled: true,
+                        fillColor: kColorBgLight,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                    const SizedBox(height: 30),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => setState(() => _capturedImagePath = null),
+                            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                            child: const Text("재촬영", style: TextStyle(color: kColorSlate500, fontSize: 16, fontWeight: FontWeight.w600)),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton(
+                            onPressed: _register,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: kColorCyan,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            child: const Text("등록 완료", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -226,877 +865,79 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 }
 
 // ==========================================
-// 6. Home Screen (Main)
+// [New] Face Guide Painter (얼굴 모양 가이드)
 // ==========================================
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  FanState fanState = FanState();
-  late AnimationController _bladeController;
-  late AnimationController _swingController;
-
-  @override
-  void initState() {
-    super.initState();
-    _bladeController = AnimationController(vsync: this, duration: const Duration(seconds: 1));
-    _swingController = AnimationController(vsync: this, duration: const Duration(seconds: 6));
-  }
-
-  @override
-  void dispose() {
-    _bladeController.dispose();
-    _swingController.dispose();
-    super.dispose();
-  }
-
-  void _updateState() {
-    setState(() {
-      if (fanState.isOn) {
-        // 5단계 풍속 로직
-        double speedFactor = 1.0 - (fanState.speed * 0.14);
-        double duration = fanState.mode == 'sleep' ? 1.5 : speedFactor;
-
-        _bladeController.duration = Duration(milliseconds: (duration * 1000).toInt());
-        if (!_bladeController.isAnimating) _bladeController.repeat();
-
-        if (fanState.oscillation && !_swingController.isAnimating) {
-          _swingController.repeat(reverse: true);
-        } else if (!fanState.oscillation && _swingController.isAnimating) {
-          _swingController.stop();
-        }
-      } else {
-        _bladeController.stop();
-        _swingController.stop();
-      }
-    });
-  }
-
-  void _showMenu(BuildContext context) {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: "Menu",
-      barrierColor: Colors.black.withOpacity(0.5),
-      transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (ctx, anim1, anim2) {
-        return Align(
-          alignment: Alignment.centerRight,
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: MediaQuery.of(context).size.width * 0.65,
-              height: double.infinity,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(topLeft: Radius.circular(0)),
-              ),
-              padding: const EdgeInsets.fromLTRB(32, 60, 32, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Transform.translate(
-                        offset: const Offset(0, -1.5),
-                        child: const Text('Menu', style: TextStyle(fontFamily: 'Sen', fontSize: 26, fontWeight: FontWeight.bold, color: kColorSlate900)),
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(ctx),
-                        child: Container(width: 40, height: 40, decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle), child: const Icon(Icons.close, color: kColorSlate900, size: 20)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 60),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        _buildCustomMenuItem(icon: Icons.bluetooth, text: '기기 연결', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DeviceScanScreen()))),
-                        _buildCustomMenuItem(icon: Icons.person_outline_rounded, text: '사용자 관리', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserManagementScreen()))),
-                        _buildCustomMenuItem(icon: Icons.phone_iphone_rounded, text: '리모콘', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RemoteScreen(fanState: fanState, onUpdate: (newState) { setState(() { fanState = newState; }); })))),
-                        _buildCustomMenuItem(icon: Icons.bar_chart_rounded, text: '사용 분석', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen()))),
-                        _buildCustomMenuItem(icon: Icons.settings_outlined, text: '설정', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-      transitionBuilder: (ctx, anim1, anim2, child) => SlideTransition(position: Tween(begin: const Offset(1, 0), end: const Offset(0, 0)).animate(CurvedAnimation(parent: anim1, curve: Curves.easeOutCubic)), child: child),
-    );
-  }
-
-  Widget _buildCustomMenuItem({required IconData icon, required String text, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.translucent,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        child: Row(
-          children: [
-            Icon(icon, color: kColorSlate500, size: 24),
-            const SizedBox(width: 24),
-            Transform.translate(offset: const Offset(0, -2.0), child: Text(text, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w500, color: kColorSlate800, letterSpacing: -0.3, height: 1.0))),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: AnimatedContainer(
-        duration: const Duration(seconds: 1),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft, end: Alignment.bottomRight,
-            colors: fanState.isOn
-                ? [const Color(0xFFEFF6FF), const Color(0xFFCFFAFE)]
-                : [const Color(0xFFF8FAFC), const Color(0xFFE2E8F0)],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // 1. Header
-              Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Text('AMBIENT', style: TextStyle(fontSize: 12, letterSpacing: 2, color: kColorSlate500)),
-                      Row(children: const [Text('NODE', style: TextStyle(fontSize: 12, letterSpacing: 2, fontWeight: FontWeight.bold, color: kColorCyan))]),
-                    ]),
-                    IconButton(icon: const Icon(Icons.menu, color: kColorSlate500), onPressed: () => _showMenu(context)),
-                  ],
-                ),
-              ),
-
-              // 2. Fan Visual
-              Expanded(
-                child: Stack(
-                  alignment: Alignment.topCenter,
-                  children: [
-                    Fan3DVisual(fanState: fanState, bladeAnimation: _bladeController, swingAnimation: _swingController),
-                    AnimatedOpacity(
-                      opacity: fanState.isOn ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 500),
-                      child: Positioned(
-                        top: 40,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-                          decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.white.withOpacity(0.8), width: 1), boxShadow: [BoxShadow(color: kColorCyan.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))]),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: const [Icon(Icons.thermostat, size: 14, color: kColorSlate800), SizedBox(width: 6), Text("24°C", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kColorSlate800))]),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // 3. Status Text
-              SizedBox(
-                height: 60,
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: Text(
-                    fanState.isOn ? (fanState.mode == 'sleep' ? '수면풍' : '풍속 ${fanState.speed}') : '대기 모드',
-                    key: ValueKey(fanState.isOn ? fanState.mode + fanState.speed.toString() : 'off'),
-                    style: TextStyle(fontFamily: 'Sen', fontSize: 25, fontWeight: FontWeight.w300, color: fanState.isOn ? kColorSlate800 : kColorSlate500.withOpacity(0.5)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // 4. Controls
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: Container(
-                    color: Colors.white.withOpacity(0.7),
-                    padding: const EdgeInsets.fromLTRB(32, 32, 32, 40),
-                    child: Column(
-                      children: [
-                        // 풍속 슬라이더 (5단계)
-                        Opacity(
-                          opacity: fanState.isOn ? 1.0 : 0.3,
-                          child: Container(
-                            height: 60,
-                            decoration: BoxDecoration(color: kColorSlate200.withOpacity(0.5), borderRadius: BorderRadius.circular(30)),
-                            child: Row(
-                              children: List.generate(5, (index) {
-                                int s = index + 1;
-                                return Expanded(
-                                  child: GestureDetector(
-                                    onTap: () { if (fanState.isOn) { fanState.speed = s; _updateState(); } },
-                                    child: Container(
-                                      color: Colors.transparent,
-                                      child: Center(
-                                        child: AnimatedContainer(
-                                          duration: const Duration(milliseconds: 300),
-                                          width: fanState.speed == s ? 14 : 8,
-                                          height: fanState.speed == s ? 14 : 8,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: fanState.speed == s ? kColorCyan : kColorSlate500.withOpacity(0.3),
-                                            boxShadow: fanState.speed == s ? [const BoxShadow(color: kColorCyan, blurRadius: 10)] : [],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 30),
-                        // 기능 버튼들
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            _buildCircleBtn(Icons.timer_outlined, '타이머', active: fanState.timerOn, onTap: () { fanState.timerOn = !fanState.timerOn; _updateState(); }),
-                            _buildCircleBtn(Icons.sync, '회전', active: fanState.oscillation, onTap: () { fanState.oscillation = !fanState.oscillation; _updateState(); }),
-                            _buildCircleBtn(Icons.nights_stay, '수면풍', active: fanState.mode == 'sleep', onTap: () { fanState.mode = fanState.mode == 'sleep' ? 'normal' : 'sleep'; _updateState(); }),
-                            _buildCircleBtn(Icons.gamepad, '리모콘', active: false, isRemote: true, onTap: () {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => RemoteScreen(fanState: fanState, onUpdate: (newState) { setState(() { fanState = newState; }); })));
-                            }),
-                          ],
-                        ),
-                        const SizedBox(height: 30),
-                        // 전원 버튼
-                        GestureDetector(
-                          onTap: () { fanState.isOn = !fanState.isOn; _updateState(); },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 500),
-                            width: double.infinity,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              gradient: fanState.isOn ? const LinearGradient(colors: [kColorCyan, Color(0xFF3B82F6)]) : const LinearGradient(colors: [kColorSlate800, kColorSlate900]),
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: [BoxShadow(color: fanState.isOn ? kColorCyan.withOpacity(0.4) : Colors.black12, blurRadius: 20, offset: const Offset(0, 10))],
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.power_settings_new, color: Colors.white),
-                                const SizedBox(width: 8),
-                                Text(fanState.isOn ? '전원 끄기' : '전원 켜기', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCircleBtn(IconData icon, String label, {bool active = false, VoidCallback? onTap, bool isRemote = false}) {
-    return GestureDetector(
-      onTap: fanState.isOn ? onTap : null,
-      child: Opacity(
-        opacity: fanState.isOn ? 1.0 : 0.5,
-        child: Column(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 56, height: 56,
-              decoration: BoxDecoration(
-                color: active ? kColorCyan.withOpacity(0.1) : (isRemote ? kColorSlate200.withOpacity(0.5) : kColorBgLight),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: active ? kColorCyan : Colors.transparent, width: 2),
-              ),
-              child: Icon(icon, color: active ? kColorCyan : kColorSlate500, size: 24),
-            ),
-            const SizedBox(height: 8),
-            Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: kColorSlate500)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ==========================================
-// 7. Settings Screen (New Feature)
-// ==========================================
-class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
-
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends State<SettingsScreen> {
-  bool _notiEnabled = true;
-  bool _autoUpdate = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildCommonHeader(context, '설정'),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                children: [
-                  _buildSectionHeader('일반'),
-                  _buildSettingsTile('알림 설정',
-                      trailing: Switch(
-                        value: _notiEnabled,
-                        onChanged: (v) => setState(() => _notiEnabled = v),
-                        activeColor: kColorCyan,
-                      )),
-                  _buildSettingsTile('언어 설정', trailing: const Text('한국어', style: TextStyle(color: kColorSlate500, fontSize: 14))),
-                  const SizedBox(height: 24),
-                  _buildSectionHeader('기기 관리'),
-                  _buildSettingsTile('자동 펌웨어 업데이트',
-                      trailing: Switch(
-                        value: _autoUpdate,
-                        onChanged: (v) => setState(() => _autoUpdate = v),
-                        activeColor: kColorCyan,
-                      )),
-                  _buildSettingsTile('기기 초기화', textColor: Colors.redAccent, onTap: () {}),
-                  const SizedBox(height: 24),
-                  _buildSectionHeader('앱 정보'),
-                  _buildSettingsTile('버전 정보', trailing: const Text('v1.0.2', style: TextStyle(color: kColorSlate500, fontSize: 14))),
-                  _buildSettingsTile('이용 약관', onTap: () {}),
-                  _buildSettingsTile('개인정보 처리방침', onTap: () {}),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12, left: 4),
-      child: Text(title, style: const TextStyle(color: kColorSlate500, fontSize: 12, fontWeight: FontWeight.bold)),
-    );
-  }
-
-  Widget _buildSettingsTile(String title, {Widget? trailing, Color? textColor, VoidCallback? onTap}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 10)],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-        title: Transform.translate(
-          offset: const Offset(0, -1),
-          child: Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: textColor ?? kColorSlate900, letterSpacing: -0.3)),
-        ),
-        trailing: trailing ?? const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: kColorSlate200),
-        onTap: onTap,
-      ),
-    );
-  }
-}
-
-// ==========================================
-// 8. Visuals & Painters (Improved Design)
-// ==========================================
-class FanBladePainter extends CustomPainter {
-  final Color color;
-  FanBladePainter({required this.color});
-
+class FaceOverlayPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
+    // 1. 전체 화면을 덮는 반투명 레이어 (어둡지 않게, 아주 살짝만)
+    final Paint backgroundPaint = Paint()..color = Colors.black.withOpacity(0.3); // 30% 투명도
 
-    for (int i = 0; i < 3; i++) {
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.rotate((i * 120) * (math.pi / 180));
+    // 2. 얼굴 모양 (타원) 영역 정의
+    final double faceWidth = size.width * 0.75;
+    final double faceHeight = faceWidth * 1.3;
+    final Rect faceRect = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height * 0.45), // 화면 상단부에 위치
+      width: faceWidth,
+      height: faceHeight,
+    );
 
-      final paint = Paint()
-        ..shader = RadialGradient(
-          colors: [color, color.withOpacity(0.6)],
-          stops: const [0.0, 1.0],
-          center: Alignment.bottomCenter,
-          radius: 0.8,
-        ).createShader(Rect.fromCircle(center: Offset.zero, radius: radius));
+    // 3. 배경에서 얼굴 영역만 구멍 뚫기 (Difference)
+    final Path backgroundPath = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    final Path facePath = Path()..addOval(faceRect);
 
-      final path = Path();
-      path.moveTo(0, 0);
-      path.quadraticBezierTo(radius * 0.3, -radius * 0.15, radius * 0.6, -radius * 0.25);
-      path.cubicTo(radius * 0.9, -radius * 0.2, radius * 1.0, radius * 0.1, radius * 0.7, radius * 0.4);
-      path.quadraticBezierTo(radius * 0.3, radius * 0.4, 0, 0);
-      path.close();
+    final Path overlayPath = Path.combine(
+      PathOperation.difference,
+      backgroundPath,
+      facePath,
+    );
 
-      canvas.drawPath(path, paint);
-      canvas.restore();
-    }
+    canvas.drawPath(overlayPath, backgroundPaint);
+
+    // 4. 얼굴 테두리 그리기 (밝은 Cyan 색상, 부드러운 선)
+    final Paint borderPaint = Paint()
+      ..color = kColorCyan.withOpacity(0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.0;
+
+    canvas.drawOval(faceRect, borderPaint);
+
+    // 5. (선택사항) 스캔 느낌의 데코레이션
+    // 상단 중앙 점
+    final Paint dotPaint = Paint()..color = Colors.white;
+    canvas.drawCircle(Offset(size.width / 2, faceRect.top - 15), 4, dotPaint);
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class Fan3DVisual extends StatelessWidget {
-  final FanState fanState;
-  final AnimationController bladeAnimation;
-  final AnimationController swingAnimation;
-
-  const Fan3DVisual({super.key, required this.fanState, required this.bladeAnimation, required this.swingAnimation});
-
+// [New] Professional Square Scanner Overlay Painter
+class SquareCameraScannerOverlay extends CustomPainter {
   @override
-  Widget build(BuildContext context) {
-    final swingAnim = Tween<double>(begin: -0.05, end: 0.05).animate(CurvedAnimation(parent: swingAnimation, curve: Curves.easeInOut));
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return AnimatedBuilder(
-          animation: swingAnimation,
-          builder: (context, child) {
-            double rotationY = 0;
-            if (fanState.oscillation && fanState.isOn) {
-              rotationY = swingAnim.value * 2 * math.pi;
-            }
-            return Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.001)
-                ..rotateY(rotationY),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Fan Cage
-                  Container(
-                    width: 280,
-                    height: 280,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: fanState.isOn
-                            ? [kColorCyan.withOpacity(0.2), kColorCyan.withOpacity(0.05)]
-                            : [kColorSlate200, Colors.white],
-                      ),
-                      border: Border.all(color: fanState.isOn ? kColorCyan.withOpacity(0.4) : kColorSlate200, width: 2),
-                      boxShadow: fanState.isOn
-                          ? [
-                        BoxShadow(color: kColorCyan.withOpacity(0.15), blurRadius: 30, spreadRadius: 5),
-                        const BoxShadow(color: Colors.white, blurRadius: 10, spreadRadius: -5, offset: Offset(-5, -5))
-                      ]
-                          : [],
-                    ),
-                    child: Container(
-                      margin: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white.withOpacity(0.5), width: 1)),
-                    ),
-                  ),
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = kColorCyan // Brand Color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.0
+      ..strokeCap = StrokeCap.round;
 
-                  if (fanState.isOn) const WindParticles(),
+    final double cornerLength = 30.0;
 
-                  RotationTransition(
-                    turns: bladeAnimation,
-                    child: CustomPaint(size: const Size(260, 260), painter: FanBladePainter(color: fanState.isOn ? kColorCyan : kColorSlate200)),
-                  ),
+    // Draw Corners
+    canvas.drawLine(const Offset(0, 0), Offset(0, cornerLength), paint);
+    canvas.drawLine(const Offset(0, 0), Offset(cornerLength, 0), paint);
 
-                  // Center Cap
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      gradient: RadialGradient(colors: [Colors.white, kColorSlate200.withOpacity(0.5)], stops: const [0.5, 1.0]),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: Center(
-                      child: Container(width: 10, height: 10, decoration: BoxDecoration(shape: BoxShape.circle, color: fanState.isOn ? kColorCyan.withOpacity(0.5) : kColorSlate200)),
-                    ),
-                  )
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width, cornerLength), paint);
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width - cornerLength, 0), paint);
 
-class WindParticles extends StatefulWidget {
-  const WindParticles({super.key});
-  @override
-  State<WindParticles> createState() => _WindParticlesState();
-}
+    canvas.drawLine(Offset(0, size.height), Offset(0, size.height - cornerLength), paint);
+    canvas.drawLine(Offset(0, size.height), Offset(cornerLength, size.height), paint);
 
-class _WindParticlesState extends State<WindParticles> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  final List<_Particle> _particles = List.generate(8, (index) => _Particle());
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(duration: const Duration(seconds: 2), vsync: this)..repeat();
+    canvas.drawLine(Offset(size.width, size.height), Offset(size.width, size.height - cornerLength), paint);
+    canvas.drawLine(Offset(size.width, size.height), Offset(size.width - cornerLength, size.height), paint);
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Stack(
-          children: _particles.map((p) {
-            final progress = (_controller.value + p.offset) % 1.0;
-            final dy = -150 * progress;
-            final opacity = 1.0 - progress;
-            return Positioned(
-              left: 140 + (math.cos(p.angle) * p.radius),
-              top: 140 + (math.sin(p.angle) * p.radius) + dy,
-              child: Opacity(
-                opacity: opacity,
-                child: Container(width: p.size, height: p.size, decoration: const BoxDecoration(color: kColorCyan, shape: BoxShape.circle)),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-}
-
-class _Particle {
-  double offset = math.Random().nextDouble();
-  double angle = math.Random().nextDouble() * 2 * math.pi;
-  double radius = math.Random().nextDouble() * 50;
-  double size = math.Random().nextDouble() * 4 + 2;
-}
-
-// ==========================================
-// 9. Other Screens (Remote, Scan, Users, Analytics)
-// ==========================================
-
-// --- Remote Screen ---
-class RemoteScreen extends StatefulWidget {
-  final FanState fanState;
-  final Function(FanState) onUpdate;
-  const RemoteScreen({super.key, required this.fanState, required this.onUpdate});
-
-  @override
-  State<RemoteScreen> createState() => _RemoteScreenState();
-}
-
-class _RemoteScreenState extends State<RemoteScreen> {
-  late FanState localState;
-  @override
-  void initState() {
-    super.initState();
-    localState = widget.fanState;
-  }
-
-  void _adjustPan(double delta) {
-    setState(() { localState.pan = (localState.pan + delta).clamp(-45.0, 45.0); });
-    widget.onUpdate(localState);
-  }
-
-  void _adjustTilt(double delta) {
-    setState(() { localState.tilt = (localState.tilt + delta).clamp(-30.0, 30.0); });
-    widget.onUpdate(localState);
-  }
-
-  void _center() {
-    setState(() { localState.pan = 0; localState.tilt = 0; });
-    widget.onUpdate(localState);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildCommonHeader(context, '리모콘', isDark: false),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 40),
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.5), blurRadius: 20, offset: const Offset(0, 8))]),
-                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [_buildValueBox('좌우 각도 (PAN)', localState.pan.toInt().toString()), Container(width: 1, height: 40, color: kColorSlate200), _buildValueBox('상하 각도 (TILT)', (-localState.tilt).toInt().toString())]),
-                  ),
-                  const SizedBox(height: 60),
-                  Container(
-                    width: 300, height: 300,
-                    decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.6), blurRadius: 30, offset: const Offset(0, 10)), const BoxShadow(color: Colors.white, blurRadius: 20, spreadRadius: -5)]),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Container(width: 280, height: 280, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: kColorSlate200.withOpacity(0.3)))),
-                        Container(width: 180, height: 180, decoration: BoxDecoration(shape: BoxShape.circle, color: kColorBgLight)),
-                        Positioned(top: 20, child: _dpadBtn(Icons.keyboard_arrow_up, () => _adjustTilt(15))),
-                        Positioned(bottom: 20, child: _dpadBtn(Icons.keyboard_arrow_down, () => _adjustTilt(-15))),
-                        Positioned(left: 20, child: _dpadBtn(Icons.keyboard_arrow_left, () => _adjustPan(-15))),
-                        Positioned(right: 20, child: _dpadBtn(Icons.keyboard_arrow_right, () => _adjustPan(15))),
-                        GestureDetector(onTap: _center, child: Container(width: 80, height: 80, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [kColorCyan, Color(0xFF3B82F6)]), boxShadow: [BoxShadow(color: kColorCyan.withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 4))]), child: const Icon(Icons.settings_backup_restore, color: Colors.white, size: 32))),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 60),
-                  Text(localState.oscillation ? '회전 모드 실행 중' : '수동 제어 모드', style: TextStyle(color: localState.oscillation ? kColorCyan : kColorSlate500, fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: -0.5))
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _dpadBtn(IconData icon, VoidCallback onTap) {
-    return GestureDetector(onTap: onTap, child: Container(width: 60, height: 60, decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.8), blurRadius: 8, offset: const Offset(0, 4))]), child: Icon(icon, color: kColorSlate500, size: 28)));
-  }
-
-  Widget _buildValueBox(String label, String value) {
-    return Column(children: [Text(label, style: const TextStyle(color: kColorSlate500, fontSize: 12, fontWeight: FontWeight.w500)), const SizedBox(height: 8), Text('$value°', style: const TextStyle(color: kColorSlate900, fontSize: 24, fontFamily: 'Pretendard', fontWeight: FontWeight.bold))]);
-  }
-}
-
-// --- Device Scan Screen ---
-class DeviceScanScreen extends StatefulWidget {
-  const DeviceScanScreen({super.key});
-  @override
-  State<DeviceScanScreen> createState() => _DeviceScanScreenState();
-}
-
-class _DeviceScanScreenState extends State<DeviceScanScreen> with SingleTickerProviderStateMixin {
-  late AnimationController _radarController;
-  @override
-  void initState() {
-    super.initState();
-    _radarController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
-  }
-
-  @override
-  void dispose() {
-    _radarController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildCommonHeader(context, '기기 연결'),
-            const SizedBox(height: 20),
-            Stack(alignment: Alignment.center, children: [
-              SizedBox(
-                width: 200, height: 200,
-                child: AnimatedBuilder(
-                  animation: _radarController,
-                  builder: (context, child) {
-                    return Stack(children: [0, 1, 2].map((i) {
-                      double radius = 100 * ((_radarController.value + i * 0.33) % 1.0);
-                      double opacity = 1.0 - ((_radarController.value + i * 0.33) % 1.0);
-                      return Center(child: Container(width: radius * 2, height: radius * 2, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: kColorCyan.withOpacity(opacity), width: 1.5))));
-                    }).toList());
-                  },
-                ),
-              ),
-              const Icon(Icons.bluetooth, size: 40, color: Color(0xFF00BCD4))
-            ]),
-            const SizedBox(height: 20),
-            const Text("주변 기기 검색 중...", style: TextStyle(color: Colors.grey, fontSize: 14, letterSpacing: -0.5)),
-            const SizedBox(height: 40),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                children: [
-                  _deviceTile("Ambient Node #1"),
-                  const SizedBox(height: 16),
-                  _deviceTile("Ambient Node #2")
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _deviceTile(String name) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: kColorSlate200.withOpacity(0.5), blurRadius: 10, offset: const Offset(0, 4))], border: Border.all(color: kColorSlate200)),
-      child: Row(children: [
-        Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: const Color(0xFFE0F7FA), borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.air, color: Color(0xFF00BCD4))),
-        const SizedBox(width: 16),
-        Transform.translate(offset: const Offset(0, -1.0), child: Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.5))),
-        const Spacer(),
-        ElevatedButton(onPressed: () {}, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BCD4), foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10)), child: const Text("연결", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)))
-      ]),
-    );
-  }
-}
-
-// --- User Management Screen ---
-class UserManagementScreen extends StatelessWidget {
-  const UserManagementScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Column(children: [
-          _buildCommonHeader(context, '사용자 관리'),
-          Container(
-            width: double.infinity, margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 10), padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: const Color(0xFFE3F2FD), borderRadius: BorderRadius.circular(12)),
-            child: Row(children: [const Icon(Icons.info_outline, color: Color(0xFF1565C0), size: 20), const SizedBox(width: 10), Transform.translate(offset: const Offset(0, -1), child: const Text("현재 2/2 명이 제어 중입니다.", style: TextStyle(color: Color(0xFF1565C0), fontWeight: FontWeight.w600, fontSize: 14)))]),
-          ),
-          Expanded(
-            child: ListView(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10), children: [_userTile("나 (본인)", true), const SizedBox(height: 16), _userTile("가족", true)]),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: SizedBox(width: double.infinity, height: 56, child: ElevatedButton(onPressed: () => Navigator.push(context, _createRoute(const AddUserScreen())), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BCD4), foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: const Text("사용자 추가", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: -0.5)))),
-          )
-        ]),
-      ),
-    );
-  }
-
-  Widget _userTile(String name, bool isActive) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.grey.shade200), boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 10)]),
-      child: Row(children: [
-        CircleAvatar(backgroundColor: Colors.grey[100], child: const Icon(Icons.person, color: Colors.grey)),
-        const SizedBox(width: 16),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Transform.translate(offset: const Offset(0, -1), child: Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: -0.5))), const SizedBox(height: 4), const Text("활성", style: TextStyle(fontSize: 12, color: Colors.grey))]),
-        const Spacer(),
-        IconButton(icon: const Icon(Icons.delete_outline, color: Colors.grey), onPressed: () {}),
-        Switch(value: isActive, onChanged: (v) {}, activeColor: const Color(0xFF00BCD4))
-      ]),
-    );
-  }
-}
-
-class AddUserScreen extends StatelessWidget {
-  const AddUserScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Stack(children: [
-        Container(color: Colors.grey[900]),
-        ColorFiltered(
-          colorFilter: const ColorFilter.mode(Colors.black54, BlendMode.srcOut),
-          child: Stack(children: [Container(decoration: const BoxDecoration(color: Colors.transparent, backgroundBlendMode: BlendMode.dstOut)), Center(child: Container(width: 250, height: 350, decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(150))))]),
-        ),
-        SafeArea(
-          child: Column(children: [
-            Align(alignment: Alignment.topLeft, child: IconButton(icon: const Icon(Icons.close, color: Colors.white, size: 30), onPressed: () => Navigator.pop(context))),
-            const SizedBox(height: 40),
-            const Text("얼굴을 프레임 안에 맞춰주세요", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w500)),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.all(30),
-              decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(30))),
-              child: Column(children: [
-                TextField(decoration: InputDecoration(prefixIcon: const Icon(Icons.camera_alt), hintText: "이름 입력", filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))),
-                const SizedBox(height: 20),
-                SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: () {}, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BCD4)), child: const Text("등록", style: TextStyle(color: Colors.white))))
-              ]),
-            )
-          ]),
-        )
-      ]),
-    );
-  }
-}
-
-// --- Analytics Screen ---
-class AnalyticsScreen extends StatelessWidget {
-  const AnalyticsScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SafeArea(
-        child: Column(children: [
-          _buildCommonHeader(context, '사용 분석'),
-          Expanded(
-            child: ListView(padding: const EdgeInsets.symmetric(horizontal: 24), children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 20)]),
-                child: Column(children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    Row(children: [const Icon(Icons.bar_chart, color: kColorSlate800), const SizedBox(width: 8), Transform.translate(offset: const Offset(0, -1), child: const Text("주간 리포트", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: -0.5)))]),
-                    Transform.translate(offset: const Offset(0, -1), child: const Text("24.5h", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF00BCD4), letterSpacing: -1.0)))
-                  ]),
-                  const SizedBox(height: 30),
-                  SizedBox(
-                    height: 200,
-                    child: BarChart(BarChartData(
-                        gridData: const FlGridData(show: false),
-                        titlesData: FlTitlesData(
-                            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (val, _) {
-                              const days = ['월', '화', '수', '목', '금', '토', '일'];
-                              if (val.toInt() >= 0 && val.toInt() < days.length) {
-                                return Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(days[val.toInt()], style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w500)));
-                              }
-                              return const Text("");
-                            }))),
-                        borderData: FlBorderData(show: false),
-                        barGroups: List.generate(7, (index) {
-                          return BarChartGroupData(x: index, barRods: [BarChartRodData(toY: [3, 5, 2, 6, 4, 3.5, 1][index].toDouble(), color: index == 3 ? const Color(0xFF00BCD4) : const Color(0xFFE0F7FA), width: 16, borderRadius: BorderRadius.circular(4))]);
-                        }))),
-                  )
-                ]),
-              )
-            ]),
-          )
-        ]),
-      ),
-    );
-  }
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
