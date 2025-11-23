@@ -31,7 +31,7 @@ const Color kColorBgLight = Color(0xFFF8FAFC);
 Widget _buildCommonHeader(BuildContext context, String title, {bool isDark = false}) {
   final Color contentColor = isDark ? Colors.white : kColorSlate900;
   return Padding(
-    padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+    padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -43,7 +43,7 @@ Widget _buildCommonHeader(BuildContext context, String title, {bool isDark = fal
             child: Icon(Icons.arrow_back_ios_new, color: contentColor, size: 22),
           ),
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: 15),
         Transform.translate(
           offset: const Offset(0, -1.5),
           child: Text(
@@ -52,7 +52,7 @@ Widget _buildCommonHeader(BuildContext context, String title, {bool isDark = fal
               color: contentColor,
               fontSize: 18,
               fontWeight: FontWeight.w600,
-              letterSpacing: -0.5,
+              letterSpacing: -0.3,
               fontFamily: 'Pretendard',
               height: 1.0,
             ),
@@ -394,7 +394,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       child: Positioned(
                         top: 40,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
                           decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.white.withOpacity(0.8), width: 1), boxShadow: [BoxShadow(color: kColorCyan.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))]),
                           child: Row(mainAxisSize: MainAxisSize.min, children: const [Icon(Icons.thermostat, size: 14, color: kColorSlate800), SizedBox(width: 6), Text("24°C", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kColorSlate800))]),
                         ),
