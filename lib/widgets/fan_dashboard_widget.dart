@@ -1,42 +1,33 @@
 import 'dart:math' as math;
+import 'dart:ui'; // BackdropFilter용
 import 'package:flutter/material.dart';
-import 'package:ambient_node/widgets/app_top_bar.dart';
 
 class FanDashboardWidget extends StatefulWidget {
   final bool connected;
-  final VoidCallback onConnect;
   final int speed;
   final Function(double) setSpeed;
-  final bool trackingOn;
-  final Function(bool) setTrackingOn;
 
-  // 추가된 기능
-  final bool isNaturalWind;
-  final Function(bool) setNaturalWind;
-  final bool isOscillating; // 회전 모드 여부
-  final Function(bool) setOscillating;
+  final bool isNatural;
+  final Function(bool) setNatural;
+  final bool isSwing;
+  final Function(bool) setSwing;
+  final bool isSleep;
+  final Function(bool) setSleep;
 
-  final VoidCallback openAnalytics;
-  final String deviceName;
-  final String? selectedUserName;
-  final String? selectedUserImagePath;
+  final VoidCallback onRemoteTap;
 
   const FanDashboardWidget({
     super.key,
     required this.connected,
-    required this.onConnect,
     required this.speed,
     required this.setSpeed,
-    required this.trackingOn,
-    required this.setTrackingOn,
-    required this.isNaturalWind,
-    required this.setNaturalWind,
-    required this.isOscillating,
-    required this.setOscillating,
-    required this.openAnalytics,
-    this.deviceName = 'Ambient',
-    this.selectedUserName,
-    this.selectedUserImagePath,
+    required this.isNatural,
+    required this.setNatural,
+    required this.isSwing,
+    required this.setSwing,
+    required this.isSleep,
+    required this.setSleep,
+    required this.onRemoteTap,
   });
 
   @override
@@ -44,538 +35,352 @@ class FanDashboardWidget extends StatefulWidget {
 }
 
 class _FanDashboardWidgetState extends State<FanDashboardWidget>
-    with TickerProviderStateMixin {
-  late final AnimationController _rotationController; // 날개 회전
-  late final AnimationController _oscillationController; // 좌우 회전 (회전모드)
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
 
-  // Colors (Nature Theme)
-  static const Color _primaryGreen = Color(0xFF4CAF50); // 자연스러운 그린
-  static const Color _darkGreen = Color(0xFF2E7D32);
-  static const Color _accent = Color(0xFF2D3142);
+  static const Color _bladeColor = Color(0xFF26C6DA); // Cyan Blades
+  static const Color _activeBlue = Color(0xFF00B0FF);
+  static const Color _ringBorderColor = Color(0xFFB2EBF2);
 
   @override
   void initState() {
     super.initState();
-    // 1. 날개 회전 컨트롤러
-    _rotationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    );
-
-    // 2. 좌우 회전(Oscillation) 컨트롤러
-    _oscillationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 6), // 6초에 한 번 왕복
-    );
-
-    _updateState();
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 2));
+    if (widget.connected && widget.speed > 0) _controller.repeat();
   }
 
   @override
-  void didUpdateWidget(FanDashboardWidget oldWidget) {
+  void didUpdateWidget(covariant FanDashboardWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.connected != oldWidget.connected ||
-        widget.speed != oldWidget.speed ||
-        widget.isOscillating != oldWidget.isOscillating) {
-      _updateState();
-    }
-  }
-
-  void _updateState() {
-    // 날개 회전 로직
     if (widget.connected && widget.speed > 0) {
-      final durationMs = 2000 - ((widget.speed - 1) * 350);
-      _rotationController.duration =
-          Duration(milliseconds: durationMs.clamp(200, 2000));
-      if (!_rotationController.isAnimating) _rotationController.repeat();
+      final duration = 2000 - (widget.speed * 300);
+      _controller.duration = Duration(milliseconds: duration.clamp(200, 2000).toInt());
+      if (!_controller.isAnimating) _controller.repeat();
     } else {
-      _rotationController.stop();
-    }
-
-    // 좌우 회전(Oscillation) 로직
-    if (widget.connected && widget.speed > 0 && widget.isOscillating) {
-      if (!_oscillationController.isAnimating) _oscillationController.repeat(
-          reverse: true);
-    } else {
-      _oscillationController.stop();
-      _oscillationController.animateTo(
-          0.5, duration: const Duration(milliseconds: 500)); // 중앙 정렬
+      _controller.stop();
     }
   }
 
   @override
   void dispose() {
-    _rotationController.dispose();
-    _oscillationController.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool isModeActive = widget.isNatural || widget.isSleep;
+
     return Column(
       children: [
-        AppTopBar(
-          deviceName: widget.connected ? widget.deviceName : "Ambient",
-          subtitle: widget.selectedUserName != null
-              ? '${widget.selectedUserName} Active'
-              : (widget.isNaturalWind ? "Natural Breeze" : "Manual Cooling"),
-          connected: widget.connected,
-          onConnectToggle: widget.onConnect,
-          userImagePath: widget.selectedUserImagePath,
-        ),
-
+        // 1. Fan Visual Area
         Expanded(
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(24, 10, 24, 40),
-            child: Column(
-              children: [
-                const SizedBox(height: 20),
-                // ✨ Fan Visual (Oscillating)
-                _buildFanVisual(),
-
-                const SizedBox(height: 50),
-
-                // ✨ Control Panel (Slider + Toggles)
-                _buildControlPanel(),
-
-                const SizedBox(height: 30),
-
-                // ✨ Stats
-                Row(
-                  children: [
-                    Expanded(child: _buildStatCard(
-                        "Runtime", "3.5", "hr", Icons.timer_outlined, onTap: widget.openAnalytics,)),
-                    const SizedBox(width: 16),
-                    Expanded(child: _buildStatCard(
-                        "Energy", "12", "W", Icons.bolt_rounded)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // =================================================================
-  // 1. Fan Visual (Rotation + Oscillation)
-  // =================================================================
-  Widget _buildFanVisual() {
-    final isActive = widget.connected && widget.speed > 0;
-    final glowOpacity = (widget.speed / 5.0).clamp(0.0, 1.0) * 0.4;
-
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // Background Glow
-        if (isActive)
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 500),
-            width: 280,
-            height: 280,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: _primaryGreen.withOpacity(glowOpacity),
-                  blurRadius: 60,
-                  spreadRadius: 10,
-                ),
-              ],
-            ),
-          ),
-
-        // ✨ Oscillation Transform (좌우 회전)
-        // 좌우로 -15도 ~ +15도 움직임
-        AnimatedBuilder(
-          animation: _oscillationController,
-          builder: (context, child) {
-            // 0.0 ~ 1.0 -> -0.25 ~ 0.25 라디안 (약 -15 ~ 15도)
-            final angle = (_oscillationController.value - 0.5) * 0.5;
-            return Transform.rotate(
-              angle: angle,
-              alignment: Alignment.bottomCenter, // 아래쪽을 축으로 회전
-              child: child,
-            );
-          },
+          flex: 5,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              // Outer Ring
-              Container(
+              // Temperature Tag (Top)
+              Positioned(
+                top: 60,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.5), // 반투명
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withOpacity(0.8)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.thermostat, size: 14, color: Colors.black54),
+                      SizedBox(width: 4),
+                      Text("24°C", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Sen')),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ✨ Circular Fan Housing
+              SizedBox(
                 width: 280,
                 height: 280,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFFF7F9FC),
-                  border: Border.all(color: Colors.white, width: 4),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                    const BoxShadow(
-                      color: Colors.white,
-                      blurRadius: 20,
-                      offset: Offset(-10, -10),
-                    ),
-                  ],
-                ),
-              ),
-              // Blades
-              AnimatedBuilder(
-                animation: _rotationController,
-                builder: (_, __) {
-                  return Transform.rotate(
-                    angle: _rotationController.value * 2 * math.pi,
-                    child: CustomPaint(
-                      size: const Size(220, 220),
-                      painter: _TurbineBladePainter(
-                        color: isActive ? _primaryGreen : Colors.grey.shade300,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withOpacity(0.15),
+                        border: Border.all(color: _ringBorderColor, width: 3),
                       ),
                     ),
-                  );
-                },
-              ),
-              // Center Cap
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const RadialGradient(
-                    colors: [Colors.white, Color(0xFFDEE4EA)],
-                    stops: [0.2, 1.0],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 5,
-                      offset: const Offset(0, 2),
+
+                    ClipOval(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withOpacity(0.05),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // Deco Dots (Top, Bottom, Left, Right)
+                    ...List.generate(4, (index) {
+                      final angle = (index * 90) * (math.pi / 180);
+                      return Transform.translate(
+                        offset: Offset(125 * math.cos(angle - math.pi/2), 125 * math.sin(angle - math.pi/2)), // 위쪽부터 시작
+                        child: Container(
+                          width: 6, height: 6,
+                          decoration: BoxDecoration(
+                            color: _bladeColor.withOpacity(0.6),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      );
+                    }),
+
+                    // ✨ 3-Blade Fan (Animated)
+                    AnimatedBuilder(
+                      animation: _controller,
+                      builder: (_, __) => Transform.rotate(
+                        angle: _controller.value * 2 * math.pi,
+                        child: CustomPaint(
+                          size: const Size(200, 200),
+                          painter: _ThreeBladeFanPainter(color: _bladeColor.withOpacity(0.9)),
+                        ),
+                      ),
+                    ),
+
+                    // Center Hub Gradient Overlay (Depth)
+                    Container(
+                      width: 40, height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [_bladeColor.withOpacity(0.4), _bladeColor.withOpacity(0.0)],
+                        ),
+                      ),
                     ),
                   ],
                 ),
-                child: Center(
-                  child: Icon(
-                    widget.isNaturalWind ? Icons.spa : Icons.air,
-                    color: isActive ? _primaryGreen : Colors.grey.shade400,
-                    size: 24,
+              ),
+
+              // Speed / Mode Text
+              Positioned(
+                bottom: 20,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Text(
+                    widget.speed > 0
+                        ? (widget.isNatural ? "자연풍" : (widget.isSleep ? "수면풍" : "풍속 ${widget.speed}"))
+                        : "정지",
+                    key: ValueKey<String>("${widget.speed}${widget.isNatural}${widget.isSleep}"),
+                    style: const TextStyle(
+                      fontSize: 34,
+                      fontWeight: FontWeight.w300,
+                      color: Colors.black87,
+                      fontFamily: 'Sen',
+                    ),
                   ),
                 ),
               ),
             ],
+          ),
+        ),
+
+        // 2. Lower Area: Control Panel
+        Expanded(
+          flex: 4,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(30),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
+              boxShadow: [
+                BoxShadow(color: Colors.black12, blurRadius: 20, offset: Offset(0, -5)),
+              ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Slider
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F5F5),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 8,
+                      activeTrackColor: isModeActive ? Colors.grey[400] : _bladeColor.withOpacity(0.3),
+                      inactiveTrackColor: Colors.grey[300],
+                      thumbColor: isModeActive ? Colors.grey : _bladeColor,
+                      overlayColor: _bladeColor.withOpacity(0.1),
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12, elevation: 2),
+                    ),
+                    child: Slider(
+                      value: widget.speed.toDouble(),
+                      min: 0,
+                      max: 5,
+                      divisions: 5,
+                      onChanged: (isModeActive || !widget.connected) ? null : (v) => widget.setSpeed(v),
+                    ),
+                  ),
+                ),
+
+                // Grid Buttons
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _ControlBtn(
+                        icon: widget.isNatural ? Icons.eco : Icons.bolt,
+                        label: "MODE",
+                        isActive: widget.isNatural,
+                        onTap: () {
+                          // 자연풍 토글 (자연풍 켜면 수면풍 끔)
+                          if(widget.isNatural) {
+                            widget.setNatural(false);
+                          } else {
+                            widget.setNatural(true);
+                            widget.setSleep(false);
+                          }
+                        }
+                    ),
+                    _ControlBtn(
+                        icon: Icons.cached,
+                        label: "SWING",
+                        isActive: widget.isSwing,
+                        onTap: () => widget.setSwing(!widget.isSwing)
+                    ),
+                    _ControlBtn(
+                        icon: Icons.nightlight_round,
+                        label: "SLEEP",
+                        isActive: widget.isSleep,
+                        onTap: () {
+                          // 수면풍 토글 (수면풍 켜면 자연풍 끔)
+                          if(widget.isSleep) {
+                            widget.setSleep(false);
+                          } else {
+                            widget.setSleep(true);
+                            widget.setNatural(false);
+                          }
+                        }
+                    ),
+                    _ControlBtn(
+                        icon: Icons.smartphone,
+                        label: "REMOTE",
+                        isActive: false,
+                        onTap: widget.onRemoteTap
+                    ),
+                  ],
+                ),
+
+                // Power Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 60,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      if(widget.connected) widget.setSpeed(0);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _activeBlue,
+                      elevation: 5,
+                      shadowColor: _activeBlue.withOpacity(0.4),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.power_settings_new, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text("Power Off", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Sen')),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
-    );
-  }
-
-  // =================================================================
-  // 2. Control Panel (Slider & Toggles)
-  // =================================================================
-  Widget _buildControlPanel() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: _primaryGreen.withOpacity(0.08),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Speed Label
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "WIND SPEED",
-                    style: TextStyle(
-                      fontFamily: 'Sen',
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade400,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.speed == 0 ? "Off" : "Level ${widget.speed}",
-                    style: const TextStyle(
-                      fontFamily: 'Sen',
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: _accent,
-                    ),
-                  ),
-                ],
-              ),
-              // Power Toggle (Simulated by speed)
-              Switch(
-                value: widget.speed > 0,
-                activeColor: _primaryGreen,
-                onChanged: widget.connected ? (val) {
-                  widget.setSpeed(val ? 1.0 : 0.0);
-                } : null,
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // ✨ Slider Control
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: _primaryGreen,
-              inactiveTrackColor: Colors.grey.shade200,
-              thumbColor: Colors.white,
-              thumbShape: const RoundSliderThumbShape(
-                  enabledThumbRadius: 12, elevation: 4),
-              overlayColor: _primaryGreen.withOpacity(0.1),
-              trackHeight: 6,
-            ),
-            child: Slider(
-              value: widget.speed.toDouble(),
-              min: 0,
-              max: 5,
-              divisions: 5,
-              onChanged: widget.connected
-                  ? (val) => widget.setSpeed(val)
-                  : null,
-            ),
-          ),
-
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Off", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                Text("Max", style: TextStyle(fontSize: 12, color: Colors.grey)),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 30),
-
-          // ✨ Function Buttons (Natural, Rotation, AI)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _FunctionButton(
-                icon: Icons.grass_rounded,
-                label: "Natural",
-                isActive: widget.isNaturalWind,
-                onTap: () => widget.setNaturalWind(!widget.isNaturalWind),
-                enabled: widget.connected && widget.speed > 0,
-              ),
-              _FunctionButton(
-                icon: Icons.sync_alt_rounded,
-                // 회전 아이콘
-                label: "Rotation",
-                isActive: widget.isOscillating,
-                onTap: () => widget.setOscillating(!widget.isOscillating),
-                enabled: widget.connected && widget.speed > 0,
-              ),
-              _FunctionButton(
-                icon: Icons.auto_awesome,
-                label: "AI Track",
-                isActive: widget.trackingOn,
-                onTap: () => widget.setTrackingOn(!widget.trackingOn),
-                enabled: widget.connected,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard(String title, String value, String unit, IconData icon,
-      {VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap, // 클릭 이벤트 연결
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0xFFF0F2F5)),
-          boxShadow: onTap != null ? [ // 클릭 가능한 카드(Runtime)에만 약한 그림자 추가로 힌트 제공
-            BoxShadow(
-              color: Colors.green.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ] : [],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(icon, size: 20, color: Colors.grey.shade400),
-                if (onTap != null) // 클릭 가능 표시 아이콘 (선택사항)
-                  Icon(Icons.arrow_forward_ios_rounded, size: 12,
-                      color: Colors.grey.shade300),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontFamily: 'Sen',
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: _accent,
-                    height: 1.0,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    unit,
-                    style: TextStyle(
-                      fontFamily: 'Sen',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(
-                fontFamily: 'Sen',
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey.shade400,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
 
-// ✨ 기능 버튼 위젯
-class _FunctionButton extends StatelessWidget {
+// 버튼 위젯 - 모드, 회전, 수면풍 등 ...
+class _ControlBtn extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isActive;
   final VoidCallback onTap;
-  final bool enabled;
 
-  const _FunctionButton({
-    required this.icon,
-    required this.label,
-    required this.isActive,
-    required this.onTap,
-    this.enabled = true,
-  });
+  const _ControlBtn({required this.icon, required this.label, required this.isActive, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? const Color(0xFF4CAF50) : Colors.grey.shade400;
-    final bgColor = isActive ? const Color(0xFF4CAF50).withOpacity(0.1) : const Color(0xFFF5F7FA);
-
     return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Opacity(
-        opacity: enabled ? 1.0 : 0.5,
-        child: Column(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isActive ? const Color(0xFF4CAF50).withOpacity(0.3) : Colors.transparent,
-                  width: 2,
-                ),
-              ),
-              child: Icon(icon, color: isActive ? const Color(0xFF4CAF50) : Colors.grey.shade600, size: 26),
+      onTap: onTap,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 60, height: 60,
+            decoration: BoxDecoration(
+                color: isActive ? const Color(0xFFE1F5FE) : const Color(0xFFFAFAFA),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: isActive ? const Color(0xFF00B0FF) : Colors.transparent, width: 1.5),
+                boxShadow: [
+                  if (!isActive)
+                    BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 5, offset: const Offset(0, 2))
+                ]
             ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Sen',
-                fontSize: 12,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                color: isActive ? const Color(0xFF2E7D32) : Colors.grey.shade500,
-              ),
+            child: Icon(
+              icon,
+              color: isActive ? const Color(0xFF00B0FF) : Colors.grey,
+              size: 26,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600, fontFamily: 'Sen')),
+        ],
       ),
     );
   }
 }
 
-// ✨ Turbine Blade Painter (Green Color)
-class _TurbineBladePainter extends CustomPainter {
+// 3엽 날개 페인터 (기존과 동일)
+class _ThreeBladeFanPainter extends CustomPainter {
   final Color color;
-  _TurbineBladePainter({required this.color});
+  _ThreeBladeFanPainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
+    final paint = Paint()..color = color;
 
-    const int bladeCount = 7;
-    for (int i = 0; i < bladeCount; i++) {
+    for (int i = 0; i < 3; i++) {
       canvas.save();
-      final angle = (i * 2 * math.pi) / bladeCount;
+      final angle = (i * 120) * (math.pi / 180);
       canvas.translate(center.dx, center.dy);
       canvas.rotate(angle);
 
       final path = Path();
       path.moveTo(0, 0);
-      path.quadraticBezierTo(10, -radius * 0.3, 0, -radius * 0.9);
-      path.quadraticBezierTo(25, -radius * 1.0, 40, -radius * 0.5);
-      path.quadraticBezierTo(15, -radius * 0.2, 0, 0);
-
-      paint.shader = LinearGradient(
-        colors: [color, color.withOpacity(0.6)],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomRight,
-      ).createShader(path.getBounds());
+      path.cubicTo(radius * 0.6, -radius * 0.4, radius * 0.9, -radius * 0.1, radius * 0.8, radius * 0.4);
+      path.cubicTo(radius * 0.5, radius * 0.7, 0, radius * 0.2, 0, 0);
 
       canvas.drawPath(path, paint);
       canvas.restore();
     }
+    canvas.drawCircle(center, radius * 0.15, Paint()..color = color.withOpacity(0.5));
   }
 
   @override
-  bool shouldRepaint(covariant _TurbineBladePainter oldDelegate) {
-    return oldDelegate.color != color;
-  }
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
