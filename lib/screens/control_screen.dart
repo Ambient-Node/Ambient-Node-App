@@ -36,10 +36,9 @@ class ControlScreen extends StatefulWidget {
 
 class _ControlScreenState extends State<ControlScreen> {
   List<UserProfile> users = [];
-  int? selectedUserIndex; // 단일 선택 (하위 호환성)
-  List<int> selectedUserIndices = []; // 다중 선택 (최대 2명)
+  int? selectedUserIndex;
+  List<int> selectedUserIndices = [];
 
-  // 스트림 구독 관리 변수 (메모리 누수 방지용)
   StreamSubscription? _dataSubscription;
 
   @override
@@ -47,8 +46,6 @@ class _ControlScreenState extends State<ControlScreen> {
     super.initState();
     _loadUsers();
 
-    // 데이터 수신 리스너 등록
-    // 화면이 생성될 때 스트림을 구독하고, 데이터가 오면 _handleIncomingData 호출
     _dataSubscription = widget.dataStream?.listen((data) {
       if (mounted) {
         _handleIncomingData(data);
@@ -58,12 +55,10 @@ class _ControlScreenState extends State<ControlScreen> {
 
   @override
   void dispose() {
-    // 화면이 종료될 때 구독 취소
     _dataSubscription?.cancel();
     super.dispose();
   }
 
-  /// 서버(BLE Gateway)로부터 들어온 데이터 처리
   void _handleIncomingData(Map<String, dynamic> data) {
     print("📥 [ControlScreen] 데이터 수신: $data");
     final type = data['type'];
@@ -78,12 +73,10 @@ class _ControlScreenState extends State<ControlScreen> {
     else if (type == 'FACE_DETECTED') {
       print("👤 얼굴 감지됨: ${data['user_id']}");
     }
-    else if (type == 'FACE_LOST') { // 8초동안 얼굴이 보이지 않았을 때
+    else if (type == 'FACE_LOST') {
       print("👤 얼굴 인식 실패: ${data['user_id']}");
     }
   }
-
-
 
   Future<void> _loadUsers() async {
     final prefs = await SharedPreferences.getInstance();
@@ -114,7 +107,6 @@ class _ControlScreenState extends State<ControlScreen> {
     await prefs.setStringList('users', usersJson);
   }
 
-  // 2. 사용자 등록 함수 (기존 로직 유지 + ID 전송 확인)
   Future<void> _addUser() async {
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
@@ -122,14 +114,12 @@ class _ControlScreenState extends State<ControlScreen> {
     );
 
     if (result != null && result['action'] == 'register') {
-      // 앱에서 ID 생성 (예: user_1715123456789)
-      // 이 ID가 시스템 전체에서 쓰이는 최종 ID가 됩니다.
       final generatedUserId = 'user_${DateTime.now().millisecondsSinceEpoch}';
 
       final newUser = UserProfile(
         name: result['name']!,
         imagePath: result['imagePath'],
-        userId: generatedUserId, // 로컬에 바로 저장
+        userId: generatedUserId,
       );
 
       setState(() {
@@ -137,14 +127,13 @@ class _ControlScreenState extends State<ControlScreen> {
       });
       await _saveUsers();
 
-      // BLE 전송
       if (widget.connected && widget.onUserDataSend != null) {
         final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
 
         widget.onUserDataSend!.call({
           'action': 'user_register',
           'name': result['name']!,
-          'user_id': generatedUserId, // [중요] 생성한 ID를 Gateway로 보냄
+          'user_id': generatedUserId,
           'image_base64': base64Image,
           'timestamp': DateTime.now().toIso8601String(),
         });
@@ -177,7 +166,6 @@ class _ControlScreenState extends State<ControlScreen> {
 
         setState(() {
           users[index] = updatedUser;
-          // 선택된 사용자라면 정보 갱신을 위해 재전송
           if (selectedUserIndices.contains(index)) {
             _sendUserSelectionToBLE();
           }
@@ -185,14 +173,13 @@ class _ControlScreenState extends State<ControlScreen> {
         await _saveUsers();
 
         if (widget.connected && widget.onUserDataSend != null) {
-          // 이미지가 변경되었을 수 있으므로 다시 인코딩 (필요시 최적화 가능)
           final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
 
           widget.onUserDataSend!.call({
             'action': 'user_update',
             'user_id': updatedUser.userId,
             'username': result['name']!,
-            'image_base64': base64Image, // 수정 시에도 이미지 전송 (선택사항)
+            'image_base64': base64Image,
             'timestamp': DateTime.now().toIso8601String(),
           });
           print('[ControlScreen] 사용자 수정 요청 전송: ${result['name']}');
@@ -203,7 +190,7 @@ class _ControlScreenState extends State<ControlScreen> {
 
         if (widget.connected && widget.onUserDataSend != null) {
           widget.onUserDataSend!.call({
-            'action': 'user_delete', // Gateway에 맞게 수정 필요할 수 있음
+            'action': 'user_delete',
             'user_id': userToDelete.userId,
             'timestamp': DateTime.now().toIso8601String(),
           });
@@ -284,7 +271,7 @@ class _ControlScreenState extends State<ControlScreen> {
     if (selectedUserIndices.isEmpty) {
       if (widget.onUserDataSend != null) {
         widget.onUserDataSend!.call({
-          'action': 'user_select', // Gateway 코드와 맞춤
+          'action': 'user_select',
           'users': [],
           'timestamp': DateTime.now().toIso8601String(),
         });
@@ -292,11 +279,10 @@ class _ControlScreenState extends State<ControlScreen> {
       return;
     }
 
-    // 선택된 사용자 리스트 생성 (ID 포함)
     List<Map<String, dynamic>> selectedUsers = selectedUserIndices.map((idx) {
       final user = users[idx];
       return {
-        'user_id': user.userId, // 서버가 준 ID 사용
+        'user_id': user.userId,
         'name': user.name,
         'role': selectedUserIndices.indexOf(idx) + 1,
       };
@@ -333,26 +319,33 @@ class _ControlScreenState extends State<ControlScreen> {
     }
   }
 
-  void _sendCommand(String direction) {
+  String _capitalizeDirection(String direction) {
+    if (direction.isEmpty) return direction;
+    return direction[0].toUpperCase() + direction.substring(1).toLowerCase();
+  }
+
+  void _sendCommand(String direction, int toggleOn) {
     if (!widget.connected) {
       print('[ControlScreen] 연결되지 않아 명령 전송 불가');
       return;
     }
 
-    // 수동 제어는 별도 액션으로 처리
-    String action = 'manual_control'; // 또는 angle_change 등 Gateway 구현에 맞춤
+    final formattedDirection = _capitalizeDirection(direction);
 
     if (widget.onUserDataSend != null) {
       widget.onUserDataSend!.call({
         'action': 'angle_change',
-        'angle': direction,
+        'angle': formattedDirection,  // Up, Down, Left, Right, Center
+        'toggleOn': toggleOn,         // 1 = 누르고 있음, 0 = 뗌
         'timestamp': DateTime.now().toIso8601String(),
       });
     }
 
+    print('[ControlScreen] 📡 명령 전송: $formattedDirection (toggleOn: $toggleOn)');
+
     // Analytics
     try {
-      AnalyticsService.onManualControl(direction, null);
+      AnalyticsService.onManualControl(formattedDirection, null);
     } catch (e) {
       print('[ControlScreen] AnalyticsService 오류: $e');
     }
@@ -380,7 +373,6 @@ class _ControlScreenState extends State<ControlScreen> {
             ),
             const SizedBox(height: 16),
 
-            // 상단 버튼 영역 (전체 해제, 편집)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
@@ -436,7 +428,6 @@ class _ControlScreenState extends State<ControlScreen> {
             ),
             const SizedBox(height: 12),
 
-            // 사용자 리스트 뷰
             SizedBox(
               height: 110,
               child: ListView.builder(
@@ -463,16 +454,21 @@ class _ControlScreenState extends State<ControlScreen> {
             ),
             const SizedBox(height: 40),
 
-            // D-Pad 컨트롤러
+            // ✅ D-Pad 컨트롤러 (누르고 있을 때 toggleOn=1, 떼면 toggleOn=0)
             Expanded(
               child: Center(
                 child: RemoteControlDpad(
                   size: 280,
-                  onUp: () => _sendCommand('up'),
-                  onDown: () => _sendCommand('down'),
-                  onLeft: () => _sendCommand('left'),
-                  onRight: () => _sendCommand('right'),
-                  onCenter: () => _sendCommand('center'),
+                  onUp: () => _sendCommand('up', 1),
+                  onUpEnd: () => _sendCommand('up', 0),
+                  onDown: () => _sendCommand('down', 1),
+                  onDownEnd: () => _sendCommand('down', 0),
+                  onLeft: () => _sendCommand('left', 1),
+                  onLeftEnd: () => _sendCommand('left', 0),
+                  onRight: () => _sendCommand('right', 1),
+                  onRightEnd: () => _sendCommand('right', 0),
+                  onCenter: () => _sendCommand('center', 1),
+                  onCenterEnd: () => _sendCommand('center', 0),
                 ),
               ),
             ),
