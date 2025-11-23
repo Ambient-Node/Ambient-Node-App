@@ -319,9 +319,9 @@ class _ControlScreenState extends State<ControlScreen> {
     }
   }
 
-  String _capitalizeDirection(String direction) {
+  String _lowercaseDirection(String direction) {
     if (direction.isEmpty) return direction;
-    return direction[0].toUpperCase() + direction.substring(1).toLowerCase();
+    return direction[0].toLowerCase();
   }
 
   void _sendCommand(String direction, int toggleOn) {
@@ -330,7 +330,7 @@ class _ControlScreenState extends State<ControlScreen> {
       return;
     }
 
-    final formattedDirection = _capitalizeDirection(direction);
+    final formattedDirection = _lowercaseDirection(direction);
 
     if (widget.onUserDataSend != null) {
       widget.onUserDataSend!.call({
