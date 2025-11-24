@@ -38,8 +38,8 @@ class _ControlScreenState extends State<ControlScreen> {
   List<UserProfile> users = [];
   int? selectedUserIndex;
   List<int> selectedUserIndices = [];
-
   StreamSubscription? _dataSubscription;
+  bool isManualControlActive = false;
 
   @override
   void initState() {
@@ -47,9 +47,10 @@ class _ControlScreenState extends State<ControlScreen> {
     _loadUsers();
 
     _dataSubscription = widget.dataStream?.listen((data) {
-      if (mounted) {
+      if (!mounted) return;
+      setState(() {
         _handleIncomingData(data);
-      }
+      });
     });
   }
 
@@ -60,22 +61,34 @@ class _ControlScreenState extends State<ControlScreen> {
   }
 
   void _handleIncomingData(Map<String, dynamic> data) {
-    print("📥 [ControlScreen] 데이터 수신: $data");
+    print("[ControlScreen] Data received: $data");
     final type = data['type'];
 
     if (type == 'REGISTER_ACK') {
       if (data['success'] == true) {
-        print("[ControlScreen] ai_service로부터 사용자 등록 성공");
+        print("[ControlScreen] User registration success from ai_service");
       } else {
-        print("[ControlScreen] ai_service로부터 사용자 등록 실패: ${data['error']}");
+        print("[ControlScreen] User registration failed: ${data['error']}");
       }
     }
     else if (type == 'FACE_DETECTED') {
-      print("👤 얼굴 감지됨: ${data['user_id']}");
+      print("[ControlScreen] Face detected: ${data['user_id']}");
     }
     else if (type == 'FACE_LOST') {
-      print("👤 얼굴 인식 실패: ${data['user_id']}");
+      print("[ControlScreen] Face lost: ${data['user_id']}");
     }
+  }
+
+  // 현재 선택된 사용자 목록을 반환하는 헬퍼 메서드
+  List<Map<String, dynamic>> _getSelectedUsersList() {
+    return selectedUserIndices.map((idx) {
+      final user = users[idx];
+      return {
+        'user_id': user.userId,
+        'username': user.name,
+        'role': selectedUserIndices.indexOf(idx) + 1,
+      };
+    }).toList();
   }
 
   Future<void> _loadUsers() async {
@@ -130,12 +143,14 @@ class _ControlScreenState extends State<ControlScreen> {
       if (widget.connected && widget.onUserDataSend != null) {
         final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
 
+        // 현재 선택된 사용자 포함
         widget.onUserDataSend!.call({
           'action': 'user_register',
-          'name': result['name']!,
           'user_id': generatedUserId,
+          'username': result['name']!,
           'image_base64': base64Image,
           'timestamp': DateTime.now().toIso8601String(),
+          'selected_users': _getSelectedUsersList(),
         });
       }
     }
@@ -175,24 +190,28 @@ class _ControlScreenState extends State<ControlScreen> {
         if (widget.connected && widget.onUserDataSend != null) {
           final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
 
+          // 현재 선택된 사용자 포함
           widget.onUserDataSend!.call({
             'action': 'user_update',
             'user_id': updatedUser.userId,
             'username': result['name']!,
             'image_base64': base64Image,
             'timestamp': DateTime.now().toIso8601String(),
+            'selected_users': _getSelectedUsersList(),
           });
-          print('[ControlScreen] 사용자 수정 요청 전송: ${result['name']}');
+          print('[ControlScreen] User update request sent: ${result['name']}');
         }
 
       } else if (result['action'] == 'delete') {
         final userToDelete = users[index];
 
         if (widget.connected && widget.onUserDataSend != null) {
+          // 현재 선택된 사용자 포함
           widget.onUserDataSend!.call({
             'action': 'user_delete',
             'user_id': userToDelete.userId,
             'timestamp': DateTime.now().toIso8601String(),
+            'selected_users': _getSelectedUsersList(),
           });
         }
         _deleteUser(index);
@@ -264,7 +283,7 @@ class _ControlScreenState extends State<ControlScreen> {
 
   void _sendUserSelectionToBLE() {
     if (!widget.connected) {
-      print('[ControlScreen] 연결되지 않아 사용자 선택 전송 불가');
+      print('[ControlScreen] Cannot send user selection - not connected');
       return;
     }
 
@@ -272,32 +291,50 @@ class _ControlScreenState extends State<ControlScreen> {
       if (widget.onUserDataSend != null) {
         widget.onUserDataSend!.call({
           'action': 'user_select',
-          'users': [],
+          'user_list': [],
           'timestamp': DateTime.now().toIso8601String(),
+          'selected_users': [],
         });
+
+        // 선택 해제 시 Manual 모드로
+        widget.onUserDataSend!.call({
+          'action': 'mode_change',
+          'mode': 'manual',
+          'timestamp': DateTime.now().toIso8601String(),
+          'selected_users': [],
+        });
+
+        isManualControlActive = false;
       }
       return;
     }
 
-    List<Map<String, dynamic>> selectedUsers = selectedUserIndices.map((idx) {
-      final user = users[idx];
-      return {
-        'user_id': user.userId,
-        'name': user.name,
-        'role': selectedUserIndices.indexOf(idx) + 1,
-      };
-    }).toList();
+    List<Map<String, dynamic>> selectedUsers = _getSelectedUsersList();
 
     if (widget.onUserDataSend != null) {
+      // 사용자 선택 전송
       widget.onUserDataSend!.call({
         'action': 'user_select',
-        'users': selectedUsers,
+        'user_list': selectedUsers,
         'timestamp': DateTime.now().toIso8601String(),
+        'selected_users': selectedUsers,
       });
+
+      // AI 모드로 전환 (리모컨 조작 중이 아니면)
+      if (!isManualControlActive) {
+        widget.onUserDataSend!.call({
+          'action': 'mode_change',
+          'mode': 'ai',
+          'timestamp': DateTime.now().toIso8601String(),
+          'selected_users': selectedUsers,
+        });
+      }
     }
 
-    print('[ControlScreen] 👥 선택된 사용자 전송: ${selectedUsers.length}명');
+    print('[ControlScreen] Selected users sent: ${selectedUsers.length} users');
   }
+
+
 
   void _reorderSelectedUsers() {
     selectedUserIndices.sort();
@@ -313,8 +350,9 @@ class _ControlScreenState extends State<ControlScreen> {
     if (widget.connected && widget.onUserDataSend != null) {
       widget.onUserDataSend!.call({
         'action': 'user_select',
-        'users': [],
+        'user_list': [],
         'timestamp': DateTime.now().toIso8601String(),
+        'selected_users': [],
       });
     }
   }
@@ -326,30 +364,61 @@ class _ControlScreenState extends State<ControlScreen> {
 
   void _sendCommand(String direction, int toggleOn) {
     if (!widget.connected) {
-      print('[ControlScreen] 연결되지 않아 명령 전송 불가');
+      print('[ControlScreen] Cannot send command - not connected');
       return;
     }
 
     final formattedDirection = _lowercaseDirection(direction);
+    final selectedUsers = _getSelectedUsersList();
 
     if (widget.onUserDataSend != null) {
+      // 리모컨 누를 때 (toggleOn == 1)
+      if (toggleOn == 1) {
+        isManualControlActive = true;
+
+        // Manual 모드로 전환
+        widget.onUserDataSend!.call({
+          'action': 'mode_change',
+          'mode': 'manual',
+          'timestamp': DateTime.now().toIso8601String(),
+          'selected_users': selectedUsers,
+        });
+      }
+      // 리모컨 뗄 때 (toggleOn == 0)
+      else if (toggleOn == 0) {
+        isManualControlActive = false;
+
+        // 사용자가 선택되어 있으면 AI 모드로 복귀
+        if (selectedUserIndices.isNotEmpty) {
+          widget.onUserDataSend!.call({
+            'action': 'mode_change',
+            'mode': 'ai',
+            'timestamp': DateTime.now().toIso8601String(),
+            'selected_users': selectedUsers,
+          });
+        }
+      }
+
+      // 각도 변경 명령
       widget.onUserDataSend!.call({
         'action': 'angle_change',
-        'angle': formattedDirection,  // Up, Down, Left, Right, Center
-        'toggleOn': toggleOn,         // 1 = 누르고 있음, 0 = 뗌
+        'direction': formattedDirection,
+        'toggleOn': toggleOn,
         'timestamp': DateTime.now().toIso8601String(),
+        'selected_users': selectedUsers,
       });
     }
 
-    print('[ControlScreen] 📡 명령 전송: $formattedDirection (toggleOn: $toggleOn)');
+    print('[ControlScreen] Command sent: $formattedDirection (toggleOn: $toggleOn)');
 
-    // Analytics
     try {
       AnalyticsService.onManualControl(formattedDirection, null);
     } catch (e) {
-      print('[ControlScreen] AnalyticsService 오류: $e');
+      print('[ControlScreen] AnalyticsService error: $e');
     }
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -454,7 +523,7 @@ class _ControlScreenState extends State<ControlScreen> {
             ),
             const SizedBox(height: 40),
 
-            // ✅ D-Pad 컨트롤러 (누르고 있을 때 toggleOn=1, 떼면 toggleOn=0)
+            // D-Pad controller
             Expanded(
               child: Center(
                 child: RemoteControlDpad(
@@ -478,10 +547,6 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 }
-
-// ==========================================
-// Helper Classes & Widgets
-// ==========================================
 
 class UserProfile {
   final String name;

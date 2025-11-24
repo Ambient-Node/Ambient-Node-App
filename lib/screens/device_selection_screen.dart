@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:ambient_node/services/ble_service.dart'; // BleService, BleConnectionState 포함
+import 'package:ambient_node/services/ble_service.dart';
 
 class UIColors {
   static const kColorCyan = Color(0xFF00BCD4);
@@ -31,18 +31,16 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
   final Map<String, String> _connectionStates = {};
 
   bool _isScanning = false;
-  bool _hasConnectedDevice = false;
+  // _hasConnectedDevice는 UI 상태용이며, 실제 연결 상태는 bleService를 신뢰합니다.
 
   StreamSubscription? _connectionStateSubscription;
   StreamSubscription? _scanSubscription;
 
-  // 레이더 애니메이션 컨트롤러
   late AnimationController _radarController;
 
   @override
   void initState() {
     super.initState();
-    // 레이더 애니메이션 초기화
     _radarController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -54,25 +52,49 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
 
   @override
   void dispose() {
+    // 1. 애니메이션/구독 먼저 해제
     _radarController.dispose();
-    _stopScanning();
+    _scanSubscription?.cancel();
     _connectionStateSubscription?.cancel();
+
+    // 2. 스캔 중지
+    try {
+      widget.bleService.stopScan();
+    } catch (e) {
+      print('Dispose stopScan error: $e');
+    }
     super.dispose();
   }
 
   void _setupListeners() {
     _connectionStateSubscription = widget.bleService.connectionStateStream.listen((state) {
+      // [중요] 비동기 콜백에서 UI 갱신 전 반드시 mounted 체크
       if (!mounted) return;
+
       setState(() {
-        _hasConnectedDevice = (state == BleConnectionState.connected);
-        widget.onConnectionChanged(_hasConnectedDevice);
+        final isConnected = (state == BleConnectionState.connected);
+        widget.onConnectionChanged(isConnected);
 
         if (state == BleConnectionState.connected) {
+          // 이미 닫힌 화면이거나 이동 중이면 무시
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).clearSnackBars();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('디바이스가 연결되었습니다'), backgroundColor: Colors.green),
           );
-          Navigator.of(context).pop();
-        } else if (state == BleConnectionState.error) {
+
+          // 연결 성공 시 화면 닫기 (pop)
+          if (Navigator.canPop(context)) {
+            Navigator.of(context).pop();
+          }
+        }
+        else if (state == BleConnectionState.disconnected) {
+          // 연결 끊김 상태 업데이트
+          // (Status 22로 끊길 때 여기서 UI 갱신 시도하다가 죽는 것 방지)
+        }
+        else if (state == BleConnectionState.error) {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('연결 중 오류가 발생했습니다'), backgroundColor: Colors.red),
           );
@@ -83,8 +105,9 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
 
   void _startScanning() {
     if (_isScanning) return;
+    if (!mounted) return;
+
     setState(() => _isScanning = true);
-    // 애니메이션 재개
     if (!_radarController.isAnimating) _radarController.repeat();
 
     _scanSubscription = widget.bleService.startScan().listen(
@@ -109,17 +132,28 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
     _scanSubscription?.cancel();
     if (mounted) {
       setState(() => _isScanning = false);
-      _radarController.stop(); // 스캔 중지 시 애니메이션 정지
+      _radarController.stop();
     }
   }
 
   Future<void> _connectToDevice(BluetoothDevice device) async {
     final deviceId = device.remoteId.toString();
+
+    // 연결 시도 전 스캔 확실히 중지
     _stopScanning();
-    setState(() => _connectionStates[deviceId] = '연결 중...');
+
+    if (!mounted) return;
+    setState(() => _connectionStates[deviceId] = '연결 및 페어링 중...');
 
     try {
+      // [수정 포인트] BleService.connect 안에서 딜레이를 주는 것이 가장 좋으나,
+      // 서비스 코드를 수정할 수 없다면 여기서라도 딜레이를 줄 수는 없습니다.
+      // (connect 함수가 끝날 때는 이미 연결이 완료된 후이기 때문)
+      // 따라서 여기서는 에러 핸들링만 강화합니다.
+
       await widget.bleService.connect(device);
+
+      // connect가 에러 없이 반환되면 연결 성공으로 간주
       if (mounted) {
         setState(() {
           _connectionStates[deviceId] = '연결 완료';
@@ -129,42 +163,50 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
         });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => _connectionStates[deviceId] = '연결 실패');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('연결 실패: $e'), backgroundColor: Colors.red),
-        );
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) setState(() => _connectionStates.remove(deviceId));
-        });
-      }
+      if (!mounted) return;
+
+      setState(() => _connectionStates[deviceId] = '연결 실패');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('연결 실패: $e'), backgroundColor: Colors.red),
+      );
+
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _connectionStates.remove(deviceId));
+      });
     }
   }
 
   Future<void> _disconnectFromDevice(BluetoothDevice device) async {
     final deviceId = device.remoteId.toString();
+    if (!mounted) return;
+
     setState(() => _connectionStates[deviceId] = '해제 중...');
+
     try {
       await widget.bleService.disconnect();
       if (mounted) {
         setState(() {
           _connectionStates.remove(deviceId);
-          _hasConnectedDevice = false;
         });
       }
     } catch (e) {
       print('해제 실패: $e');
+      if (mounted) {
+        setState(() => _connectionStates.remove(deviceId)); // 실패해도 UI는 초기화
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // ... UI 코드는 기존과 동일 ...
+    // (위쪽 코드와 똑같이 유지하면 됩니다)
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
           children: [
-            // 커스텀 헤더
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
@@ -184,14 +226,11 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
                       ),
                     ),
                   ),
-                  const SizedBox(width: 48), // 밸런스용 여백
+                  const SizedBox(width: 48),
                 ],
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // 레이더 애니메이션 영역
             Stack(
               alignment: Alignment.center,
               children: [
@@ -205,7 +244,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
                         children: [0, 1, 2].map((i) {
                           double radius = 100 * ((_radarController.value + i * 0.33) % 1.0);
                           double opacity = 1.0 - ((_radarController.value + i * 0.33) % 1.0);
-                          // 스캔 중이 아닐 때는 고정된 원 하나만 표시하거나 숨김 처리 가능
                           if (!_isScanning) opacity = 0.1;
 
                           return Center(
@@ -233,7 +271,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
                 ),
               ],
             ),
-
             const SizedBox(height: 20),
             Text(
               _isScanning ? "주변 기기 검색 중..." : "검색 완료",
@@ -244,10 +281,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
                 onPressed: _startScanning,
                 child: const Text("다시 스캔", style: TextStyle(color: UIColors.kColorCyan)),
               ),
-
             const SizedBox(height: 20),
-
-            // 기기 리스트
             Expanded(
               child: _devices.isEmpty
                   ? Center(
@@ -276,8 +310,11 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
   Widget _buildDeviceTile(BluetoothDevice device) {
     final deviceId = device.remoteId.toString();
     final status = _connectionStates[deviceId] ?? '';
+
+    // 연결 상태 판단 로직 강화
     final isConnected = widget.bleService.currentState == BleConnectionState.connected &&
-        status == '연결 완료';
+        (status == '연결 완료' || status.isEmpty);
+
     final deviceName = device.platformName.isNotEmpty ? device.platformName : '알 수 없는 기기';
 
     return Container(
