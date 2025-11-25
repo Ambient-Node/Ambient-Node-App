@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // [추가] 상태바 제어를 위해 필요
+import 'package:flutter/services.dart';
 
 // [필수] 화면들 import
 import 'package:ambient_node/screens/splash_screen.dart';
@@ -16,10 +16,10 @@ import 'package:ambient_node/services/analytics_service.dart';
 import 'package:ambient_node/services/ble_service.dart';
 
 void main() {
-  // [추가] 상태바 투명하게 설정 (앱이 더 넓어보임)
+  // 상태바 투명하게 설정
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark, // 어두운 아이콘
+    statusBarIconBrightness: Brightness.dark,
     systemNavigationBarColor: Colors.white,
     systemNavigationBarIconBrightness: Brightness.dark,
   ));
@@ -36,11 +36,10 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Ambient Node',
       theme: ThemeData(
-        // [디자인] 글로벌 테마 설정
         fontFamily: 'Sen',
-        scaffoldBackgroundColor: const Color(0xFFF6F7F8), // 공통 배경색
+        scaffoldBackgroundColor: const Color(0xFFF6F7F8),
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF3A91FF), // 메인 블루 컬러
+          seedColor: const Color(0xFF3A91FF),
           background: const Color(0xFFF6F7F8),
         ),
         useMaterial3: true,
@@ -82,18 +81,21 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
+  // ★★★ [테스트 모드 스위치] ★★★
+  // true: 가상 연결 모드 (블루투스 없이 UI/UX 테스트 가능)
+  // false: 실제 블루투스 연결 모드
+  final bool _isTestMode = true;
+
   int _index = 0;
   late final BleService ble;
 
-  // BLE 데이터 스트림 중계용 컨트롤러
   final _bleDataStreamController = StreamController<Map<String, dynamic>>.broadcast();
   StreamSubscription? _bleStateSub;
   StreamSubscription? _bleDataSub;
 
   bool connected = false;
-  String deviceName = 'Ambient';
+  String deviceName = 'Ambient (Test)';
 
-  // 상태 변수
   int speed = 0;
   bool trackingOn = false;
 
@@ -104,29 +106,34 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     ble = BleService();
-    ble.initialize();
 
-    _bleStateSub = ble.connectionStateStream.listen((state) {
-      print('🔵 [Main] 연결 상태 변경: $state');
-      if (!mounted) return;
+    if (!_isTestMode) {
+      // [실제 모드] BLE 초기화 및 리스너 등록
+      ble.initialize();
+      _bleStateSub = ble.connectionStateStream.listen((state) {
+        print('🔵 [Main] 연결 상태 변경: $state');
+        if (!mounted) return;
 
-      setState(() {
-        connected = (state == BleConnectionState.connected);
-        if (!connected) {
-          speed = 0;
-          trackingOn = false;
+        setState(() {
+          connected = (state == BleConnectionState.connected);
+          if (!connected) {
+            speed = 0;
+            trackingOn = false;
+          }
+        });
+
+        if (state == BleConnectionState.error) {
+          _showSnackBar('BLE 오류가 발생했습니다.');
         }
       });
 
-      if (state == BleConnectionState.error) {
-        _showSnackBar('BLE 오류가 발생했습니다.');
-      }
-    });
-
-    _bleDataSub = ble.dataStream.listen((data) {
-      // ControlScreen 등 다른 곳에서 구독할 수 있도록 중계
-      _bleDataStreamController.add(data);
-    });
+      _bleDataSub = ble.dataStream.listen((data) {
+        _bleDataStreamController.add(data);
+      });
+    } else {
+      // [테스트 모드] 초기화 로직 없음 (가상 연결 대기)
+      print("🧪 [Test Mode] 앱이 테스트 모드로 실행되었습니다.");
+    }
 
     try {
       AnalyticsService.onUserChanged(selectedUserName);
@@ -143,7 +150,37 @@ class _MainShellState extends State<MainShell> {
     super.dispose();
   }
 
+  /// 연결 핸들러 (테스트 모드 분기)
   Future<void> handleConnect() async {
+    // [테스트 모드] 가상 연결 처리
+    if (_isTestMode) {
+      setState(() {
+        connected = !connected; // 토글
+        if (connected) {
+          speed = 1; // 연결 시 기본 속도 1
+          deviceName = "Ambient (Mock)";
+          _showSnackBar('테스트 모드: 가상 연결됨');
+
+          // 가상 데이터 수신 시뮬레이션 (예: 2초 후 얼굴 감지)
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted && connected) {
+              print("🧪 [Test] 가상 데이터 수신: FACE_DETECTED");
+              _bleDataStreamController.add({
+                'type': 'FACE_DETECTED',
+                'user_id': 'test_user'
+              });
+            }
+          });
+        } else {
+          speed = 0;
+          trackingOn = false;
+          _showSnackBar('테스트 모드: 연결 해제됨');
+        }
+      });
+      return;
+    }
+
+    // [실제 모드]
     if (connected) {
       try {
         await ble.disconnect();
@@ -180,14 +217,39 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  // --- 가상 전송 헬퍼 ---
+  void _mockSendJson(Map<String, dynamic> data) {
+    print("📤 [Test Mock Send] ${jsonEncode(data)}");
+
+    // 사용자 등록/수정 등의 경우 가짜 ACK 응답
+    if (data['action'] == 'user_register' || data['action'] == 'user_update') {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _bleDataStreamController.add({
+          'type': 'REGISTER_ACK',
+          'success': true,
+          'user_id': data['user_id']
+        });
+        print("🧪 [Test] 가상 응답: REGISTER_ACK (Success)");
+      });
+    }
+  }
+
+  // --- 명령 전송 함수들 ---
+
   void _sendSpeedChange(int newSpeed) {
-    if (!connected) return;
     int targetSpeed = newSpeed.clamp(0, 5);
     final data = {
       'action': 'speed_change',
       'speed': targetSpeed,
       'timestamp': DateTime.now().toIso8601String(),
     };
+
+    if (_isTestMode) {
+      _mockSendJson(data);
+      return;
+    }
+
+    if (!connected) return;
     try {
       ble.sendJson(data);
     } catch (e) {
@@ -196,14 +258,49 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _sendModeChange(bool isTrackingOn) {
-    if (!connected) return;
     final data = {
       'action': 'mode_change',
       'mode': isTrackingOn ? 'ai' : 'manual',
       'timestamp': DateTime.now().toIso8601String(),
     };
+
+    if (_isTestMode) {
+      _mockSendJson(data);
+      return;
+    }
+
+    if (!connected) return;
     try {
       ble.sendJson(data);
+    } catch (e) {
+      print('전송 실패: $e');
+    }
+  }
+
+  void _sendCommand(String direction, int toggleOn) {
+    String d = direction.isNotEmpty ? direction[0].toLowerCase() : direction;
+    final data = {
+      'action': 'angle_change',
+      'direction': d,
+      'toggleOn': toggleOn,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+
+    if (_isTestMode) {
+      _mockSendJson(data);
+      // 분석 로그 기록 시뮬레이션
+      if (toggleOn == 1) {
+        AnalyticsService.onManualControl(d, speed);
+      }
+      return;
+    }
+
+    if (!connected) return;
+    try {
+      ble.sendJson(data);
+      if (toggleOn == 1) {
+        AnalyticsService.onManualControl(d, speed);
+      }
     } catch (e) {
       print('전송 실패: $e');
     }
@@ -212,7 +309,7 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final screens = [
-      // 0: 대시보드
+      // 0: 대시보드 (수동 제어 기능 통합)
       DashboardScreen(
         connected: connected,
         onConnect: handleConnect,
@@ -231,13 +328,13 @@ class _MainShellState extends State<MainShell> {
           } catch (_) {}
         },
         openAnalytics: () => setState(() => _index = 2),
-        onRemoteTap: () => setState(() => _index = 1), // 리모컨 탭으로 이동
+        onManualControl: _sendCommand,
         deviceName: deviceName,
         selectedUserName: selectedUserName,
         selectedUserImagePath: selectedUserImagePath,
       ),
 
-      // 1: 제어 (리모컨)
+      // 1: 사용자 관리 (구 제어 탭)
       ControlScreen(
         connected: connected,
         deviceName: deviceName,
@@ -251,7 +348,13 @@ class _MainShellState extends State<MainShell> {
           });
           try { AnalyticsService.onUserChanged(userName); } catch (_) {}
         },
-        onUserDataSend: (data) => ble.sendJson(data),
+        onUserDataSend: (data) {
+          if (_isTestMode) {
+            _mockSendJson(data);
+          } else {
+            ble.sendJson(data);
+          }
+        },
       ),
 
       // 2: 분석
@@ -260,13 +363,19 @@ class _MainShellState extends State<MainShell> {
       // 3: 설정
       SettingsScreen(
         connected: connected,
-        sendJson: (data) => ble.sendJson(data),
+        sendJson: (data) {
+          if (_isTestMode) {
+            _mockSendJson(data);
+          } else {
+            ble.sendJson(data);
+          }
+        },
       ),
     ];
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7F8),
-      extendBody: true, // 바텀 네비게이션바 뒤로 컨텐츠가 보이게 (투명도 효과 극대화)
+      extendBody: true,
       body: IndexedStack(
         index: _index,
         children: screens,
@@ -274,13 +383,13 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: Container(
         padding: const EdgeInsets.only(bottom: 20, left: 16, right: 16, top: 10),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.9), // 살짝 투명하게
+          color: Colors.white.withOpacity(0.95),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
               blurRadius: 20,
-              offset: const Offset(0, -5), // 부드러운 그림자
+              offset: const Offset(0, -5),
             ),
           ],
         ),
@@ -289,7 +398,7 @@ class _MainShellState extends State<MainShell> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _buildNavItem(0, Icons.dashboard_rounded, "홈"),
-              _buildNavItem(1, Icons.gamepad_rounded, "제어"),
+              _buildNavItem(1, Icons.people_alt_rounded, "유저"),
               _buildNavItem(2, Icons.bar_chart_rounded, "분석"),
               _buildNavItem(3, Icons.settings_rounded, "설정"),
             ],
@@ -301,7 +410,6 @@ class _MainShellState extends State<MainShell> {
 
   Widget _buildNavItem(int index, IconData icon, String label) {
     final isSelected = _index == index;
-    // Analytics 탭에서 사용된 메인 블루 컬러
     final activeColor = const Color(0xFF3A91FF);
     final inactiveColor = const Color(0xFF949BA5);
 
@@ -310,7 +418,7 @@ class _MainShellState extends State<MainShell> {
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutBack, // 튕기는 듯한 부드러운 애니메이션
+        curve: Curves.easeOutBack,
         padding: isSelected
             ? const EdgeInsets.symmetric(horizontal: 20, vertical: 12)
             : const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -326,7 +434,6 @@ class _MainShellState extends State<MainShell> {
               size: 24,
               color: isSelected ? activeColor : inactiveColor,
             ),
-            // 선택되었을 때만 텍스트 표시 (공간 효율 + 심플함)
             if (isSelected) ...[
               const SizedBox(width: 8),
               Text(

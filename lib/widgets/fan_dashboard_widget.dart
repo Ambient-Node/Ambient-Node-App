@@ -2,11 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:ambient_node/widgets/app_top_bar.dart';
-// [필수] Analytics 모델과 서비스 import
-import 'package:ambient_node/models/user_analytics.dart'; // UserAnalytics 모델 파일 경로 확인
-import 'package:ambient_node/services/analytics_service.dart';
-// [필수] TimerSettingScreen import
 import 'package:ambient_node/screens/timer_setting_screen.dart';
+// [필수] 리모컨 위젯 import
+import 'package:ambient_node/widgets/remote_control_dpad.dart';
 
 class FanDashboardWidget extends StatefulWidget {
   final bool connected;
@@ -16,7 +14,8 @@ class FanDashboardWidget extends StatefulWidget {
   final bool trackingOn;
   final Function(bool) setTrackingOn;
   final VoidCallback openAnalytics;
-  final VoidCallback onRemoteTap;
+  // [수정] 직접 제어 콜백
+  final Function(String, int) onManualControl;
   final String deviceName;
   final String? selectedUserName;
   final String? selectedUserImagePath;
@@ -30,7 +29,7 @@ class FanDashboardWidget extends StatefulWidget {
     required this.trackingOn,
     required this.setTrackingOn,
     required this.openAnalytics,
-    required this.onRemoteTap,
+    required this.onManualControl,
     this.deviceName = 'Ambient',
     this.selectedUserName,
     this.selectedUserImagePath,
@@ -49,10 +48,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   Timer? _countdownTimer;
   Duration? _remainingTime;
 
-  // 분석 데이터 상태
-  String _todayUsageText = "-분";
-  String _todayManualCountText = "-회";
-
   @override
   void initState() {
     super.initState();
@@ -60,9 +55,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     );
-
     if (widget.connected) _updateRotation();
-    _loadAnalyticsData(); // 초기 데이터 로드
   }
 
   @override
@@ -72,76 +65,8 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
         widget.speed != oldWidget.speed) {
       _updateRotation();
     }
-    // 사용자가 바뀌거나 연결 상태가 바뀌면 데이터 갱신
-    if (widget.selectedUserName != oldWidget.selectedUserName ||
-        widget.connected != oldWidget.connected) {
-      _loadAnalyticsData();
-    }
   }
 
-  // ★ [핵심 로직] 데이터 로드 및 포맷팅
-  Future<void> _loadAnalyticsData() async {
-    if (widget.selectedUserName == null) {
-      if (mounted) {
-        setState(() {
-          _todayUsageText = "-분";
-          _todayManualCountText = "-회";
-        });
-      }
-      return;
-    }
-
-    try {
-      // AnalyticsService에서 데이터 가져오기 (비동기 가정)
-      UserAnalytics? analytics = await AnalyticsService.getUserAnalytics(widget.selectedUserName!);
-
-      if (analytics == null) return;
-
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-      final todayEnd = todayStart.add(const Duration(days: 1));
-
-      // 1. 오늘 사용 시간 계산
-      Duration totalDuration = Duration.zero;
-      for (var session in analytics.fanSessions) {
-        // 세션이 오늘 날짜 범위에 걸쳐있는지 확인 (단순화: 시작 시간이 오늘인 경우)
-        if (session.startTime.isAfter(todayStart) && session.startTime.isBefore(todayEnd)) {
-          totalDuration += session.duration;
-        }
-      }
-
-      // 2. 오늘 수동 제어 횟수 계산
-      int manualCount = 0;
-      for (var control in analytics.manualControls) {
-        if (control.timestamp.isAfter(todayStart) && control.timestamp.isBefore(todayEnd)) {
-          manualCount++;
-        }
-      }
-
-      // 3. 포맷팅 및 UI 업데이트
-      if (mounted) {
-        setState(() {
-          // 시간 포맷팅
-          int totalMin = totalDuration.inMinutes;
-          if (totalMin < 60) {
-            _todayUsageText = "${totalMin}분";
-          } else {
-            int hours = totalMin ~/ 60;
-            int mins = totalMin % 60;
-            _todayUsageText = "${hours}시간 ${mins}분";
-          }
-
-          // 횟수 포맷팅
-          _todayManualCountText = "${manualCount}회";
-        });
-      }
-
-    } catch (e) {
-      print("Analytics load error: $e");
-    }
-  }
-
-  // ... (기존 _updateRotation, _handleTimerSetting, dispose 로직 유지) ...
   @override
   void dispose() {
     _controller.dispose();
@@ -159,20 +84,16 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
     }
   }
 
+  // ... (타이머 로직 등 기존 헬퍼 메소드 유지) ...
   Future<void> _handleTimerSetting() async {
-    // (기존과 동일하여 생략, 필요시 이전 답변 코드 참조)
     final result = await Navigator.push<Duration>(
       context,
-      MaterialPageRoute(
-        builder: (context) => TimerSettingScreen(initialDuration: _remainingTime),
-      ),
+      MaterialPageRoute(builder: (context) => TimerSettingScreen(initialDuration: _remainingTime)),
     );
-
     if (result != null) {
       _countdownTimer?.cancel();
-
       if (result.inSeconds == 0) {
-        setState(() => _remainingTime = null); // 해제
+        setState(() => _remainingTime = null);
       } else {
         setState(() => _remainingTime = result);
         _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -191,107 +112,15 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
     }
   }
 
-  // ... (기존 _wrapMaxWidth 로직 유지) ...
-  Widget _wrapMaxWidth(Widget child) {
-    return Align(
-      alignment: Alignment.center,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: child,
-      ),
-    );
-  }
-
-  // ... (기존 _roundControlButton 로직 유지) ...
-  Widget _roundControlButton({
-    required IconData icon,
-    required VoidCallback onTap,
-    required Color color,
-    double iconSize = 15,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(40),
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: color, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.1),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              )
-            ]
-        ),
-        child: Icon(icon, size: iconSize, color: color),
-      ),
-    );
-  }
-
-  // ... (기존 _buildFunctionButton 로직 유지) ...
-  Widget _buildFunctionButton({
-    required IconData icon,
-    required String label,
-    required bool isActive,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: widget.connected ? onTap : null,
-      child: Column(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: isActive ? _fanBlue.withOpacity(0.1) : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: isActive
-                  ? Border.all(color: _fanBlue, width: 1.5)
-                  : null,
-            ),
-            child: Icon(
-              icon,
-              color: widget.connected
-                  ? (isActive ? _fanBlue : Colors.grey[600])
-                  : Colors.grey[300],
-              size: 26,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: widget.connected
-                  ? (isActive ? _fanBlue : Colors.grey[600])
-                  : Colors.grey[300],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, "0");
-    String hours = twoDigits(d.inHours);
-    String minutes = twoDigits(d.inMinutes.remainder(60));
-    String seconds = twoDigits(d.inSeconds.remainder(60));
-    return "$hours:$minutes:$seconds";
+    return "${twoDigits(d.inHours)}:${twoDigits(d.inMinutes.remainder(60))}:${twoDigits(d.inSeconds.remainder(60))}";
   }
 
   @override
   Widget build(BuildContext context) {
-    // ... (기존 build 구조 유지, 하단 infoCard 부분만 수정) ...
     final currentSpeed = widget.speed;
-    final color = (widget.connected && currentSpeed > 0)
-        ? _fanBlue
-        : Colors.grey.shade400;
+    final color = (widget.connected && currentSpeed > 0) ? _fanBlue : Colors.grey.shade400;
 
     return DefaultTextStyle.merge(
       style: const TextStyle(fontFamily: 'Sen'),
@@ -299,160 +128,190 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
         children: [
           AppTopBar(
             deviceName: widget.connected ? widget.deviceName : "Ambient",
-            subtitle: widget.selectedUserName != null
-                ? '${widget.selectedUserName} 선택 중'
-                : "Lab Fan",
+            subtitle: widget.selectedUserName != null ? '${widget.selectedUserName}님' : "Dashboard",
             connected: widget.connected,
             onConnectToggle: widget.onConnect,
             userImagePath: widget.selectedUserImagePath,
           ),
+
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              physics: const BouncingScrollPhysics(),
               child: Column(
                 children: [
-                  // 타이머 표시 (기존 코드)
+                  // 1. 타이머 표시
                   if (_remainingTime != null)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.only(bottom: 12),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                         decoration: BoxDecoration(
                           color: _fanBlue.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: _fanBlue.withOpacity(0.3)),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.timer_outlined, size: 16, color: _fanBlue),
-                            const SizedBox(width: 8),
-                            Text(
-                              "${_formatDuration(_remainingTime!)} 후 종료",
-                              style: const TextStyle(color: _fanBlue, fontWeight: FontWeight.bold, fontSize: 14),
-                            ),
-                          ],
+                        child: Text(
+                          "${_formatDuration(_remainingTime!)} 후 종료",
+                          style: const TextStyle(color: _fanBlue, fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                       ),
                     ),
 
-                  // 메인 팬 컨트롤 (기존 코드 유지)
-                  _wrapMaxWidth(Container(
+                  // 2. 통합 컨트롤 패널 (팬 비주얼 + 속도 제어 + 방향 제어)
+                  Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(24),
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(32),
                       boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 10)),
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
                       ],
                     ),
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
+                        // A. 팬 비주얼 (크기 축소: 240 -> 180)
                         SizedBox(
-                          height: 240,
+                          height: 180,
                           child: Stack(
                             alignment: Alignment.center,
                             children: [
                               Container(
-                                width: 220, height: 220,
+                                width: 160, height: 160,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   gradient: const RadialGradient(colors: [Colors.white, Color(0xFFF0F5FA)]),
                                   border: Border.all(color: const Color(0xFFEEF2F6), width: 1),
                                 ),
                               ),
-                              _buildFanBlades(color),
+                              _buildFanBlades(color), // 기존 팬 블레이드 위젯 (크기 자동 조정됨)
                               if (_isNatureMode && widget.connected)
-                                Positioned(top: 10, right: 10, child: Icon(Icons.grass, color: Colors.green[400])),
+                                Positioned(top: 0, right: 0, child: Icon(Icons.grass, color: Colors.green[400])),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 30),
+
+                        const SizedBox(height: 24),
+
+                        // B. 속도 조절 (Speed Control)
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             _roundControlButton(
                               icon: Icons.remove,
-                              onTap: widget.connected ? () => widget.setSpeed(((currentSpeed - 1).clamp(0, 5)).toDouble()) : () {},
+                              onTap: widget.connected
+                                  ? () => widget.setSpeed(((currentSpeed - 1).clamp(0, 5)).toDouble())
+                                  : () {},
                               color: widget.connected ? _fanBlue : Colors.grey.shade300,
-                              iconSize: 24,
                             ),
+                            const SizedBox(width: 24),
                             Column(
                               children: [
                                 Text(
-                                  _isNatureMode ? "자연풍" : '$currentSpeed',
+                                  _isNatureMode ? "Nature" : '$currentSpeed',
                                   style: TextStyle(
-                                    fontSize: _isNatureMode ? 24 : 40,
-                                    fontWeight: FontWeight.w700,
+                                    fontSize: _isNatureMode ? 20 : 36,
+                                    fontWeight: FontWeight.w800,
                                     color: widget.connected ? _fanBlue : Colors.grey,
+                                    height: 1.0,
                                   ),
                                 ),
+                                const SizedBox(height: 4),
                                 Text(
-                                  _isNatureMode ? "Nature Mode" : "Speed Level",
-                                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                  "FAN SPEED",
+                                  style: TextStyle(color: Colors.grey[400], fontSize: 10, fontWeight: FontWeight.bold),
                                 ),
                               ],
                             ),
+                            const SizedBox(width: 24),
                             _roundControlButton(
                               icon: Icons.add,
-                              onTap: widget.connected ? () => widget.setSpeed(((currentSpeed + 1).clamp(0, 5)).toDouble()) : () {},
+                              onTap: widget.connected
+                                  ? () => widget.setSpeed(((currentSpeed + 1).clamp(0, 5)).toDouble())
+                                  : () {},
                               color: widget.connected ? _fanBlue : Colors.grey.shade300,
-                              iconSize: 24,
                             ),
                           ],
                         ),
+
+                        const SizedBox(height: 32),
+                        const Divider(height: 1, indent: 20, endIndent: 20),
+                        const SizedBox(height: 24),
+
+                        // C. 모터 제어 (Motor Control - D-Pad)
+                        // 통계 카드 자리에 리모컨을 배치
+                        Text(
+                          "MOTOR CONTROL",
+                          style: TextStyle(color: Colors.grey[400], fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // D-Pad 위젯 (크기 적절히 조절)
+                        SizedBox(
+                          height: 220, // 충분한 터치 영역 확보
+                          child: RemoteControlDpad(
+                            size: 200, // 너무 크지 않게 조절
+                            onUp: () => widget.onManualControl('up', 1),
+                            onUpEnd: () => widget.onManualControl('up', 0),
+                            onDown: () => widget.onManualControl('down', 1),
+                            onDownEnd: () => widget.onManualControl('down', 0),
+                            onLeft: () => widget.onManualControl('left', 1),
+                            onLeftEnd: () => widget.onManualControl('left', 0),
+                            onRight: () => widget.onManualControl('right', 1),
+                            onRightEnd: () => widget.onManualControl('right', 0),
+                            onCenter: () => widget.onManualControl('center', 1),
+                            onCenterEnd: () => widget.onManualControl('center', 0),
+                          ),
+                        ),
                       ],
                     ),
-                  )),
+                  ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
 
-                  // 기능 버튼 4개 (기존 코드 유지)
-                  _wrapMaxWidth(Container(
-                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+                  // 3. 부가 기능 버튼들 (가로 배치)
+                  Container(
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
+                      ],
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _buildFunctionButton(icon: Icons.timer_outlined, label: "타이머", isActive: _remainingTime != null, onTap: _handleTimerSetting),
-                        _buildFunctionButton(icon: Icons.sync, label: "회전", isActive: widget.trackingOn, onTap: () => widget.setTrackingOn(!widget.trackingOn)),
-                        _buildFunctionButton(icon: Icons.grass, label: "자연풍", isActive: _isNatureMode, onTap: () { setState(() { _isNatureMode = !_isNatureMode; }); }),
-                        _buildFunctionButton(icon: Icons.gamepad_outlined, label: "리모컨", isActive: false, onTap: widget.onRemoteTap),
+                        _buildFunctionButton(
+                          icon: Icons.timer_outlined,
+                          label: "Timer",
+                          isActive: _remainingTime != null,
+                          onTap: _handleTimerSetting,
+                        ),
+                        _buildFunctionButton(
+                          icon: Icons.sync,
+                          label: "Tracking", // AI 모드
+                          isActive: widget.trackingOn,
+                          onTap: () => widget.setTrackingOn(!widget.trackingOn),
+                        ),
+                        _buildFunctionButton(
+                          icon: Icons.grass,
+                          label: "Nature",
+                          isActive: _isNatureMode,
+                          onTap: () => setState(() => _isNatureMode = !_isNatureMode),
+                        ),
+                        // 리모컨 버튼은 이제 필요 없으므로 삭제하거나 다른 기능(예: 설정)으로 대체 가능
                       ],
                     ),
-                  )),
-
-                  const SizedBox(height: 20),
-
-                  // ★ [수정됨] 실시간 분석 데이터 카드
-                  _wrapMaxWidth(Row(
-                    children: [
-                      Expanded(
-                          child: _infoCard(
-                            label: "오늘 사용",
-                            value: _todayUsageText, // 계산된 값 사용
-                            icon: Icons.access_time_filled,
-                            iconColor: Colors.orangeAccent,
-                          )
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                          child: _infoCard(
-                            label: "수동 제어",
-                            value: _todayManualCountText, // 계산된 값 사용
-                            icon: Icons.touch_app,
-                            iconColor: _fanBlue,
-                          )
-                      ),
-                    ],
-                  )),
+                  ),
+                  const SizedBox(height: 30),
                 ],
               ),
             ),
@@ -462,13 +321,52 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
     );
   }
 
-  // ... (기존 _buildFanBlades 로직 유지) ...
+  // 버튼 스타일 위젯들 (기존 로직 사용)
+  Widget _roundControlButton({required IconData icon, required VoidCallback onTap, required Color color}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(40),
+      child: Container(
+        width: 50, height: 50,
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: 24, color: color),
+      ),
+    );
+  }
+
+  // 기능 버튼 빌더 (기존과 동일)
+  Widget _buildFunctionButton({required IconData icon, required String label, required bool isActive, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: widget.connected ? onTap : null,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 48, height: 48,
+            decoration: BoxDecoration(
+              color: isActive ? _fanBlue : Colors.grey[100],
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: isActive ? [BoxShadow(color: _fanBlue.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4))] : [],
+            ),
+            child: Icon(icon, color: isActive ? Colors.white : Colors.grey[500], size: 22),
+          ),
+          const SizedBox(height: 8),
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isActive ? _fanBlue : Colors.grey[400])),
+        ],
+      ),
+    );
+  }
+
+  // 팬 날개 빌드 함수 (기존과 동일)
   Widget _buildFanBlades(Color color) {
     Widget blade(double angle) {
       return Transform.rotate(
         angle: angle,
         child: Container(
-          width: 24, height: 110,
+          width: 20, height: 85, // 사이즈 축소
           decoration: BoxDecoration(
             gradient: LinearGradient(colors: [color.withOpacity(0.9), color.withOpacity(0.2)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
             borderRadius: BorderRadius.circular(16),
@@ -482,62 +380,8 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
         angle: _controller.value * 2 * math.pi,
         child: Stack(
           alignment: Alignment.center,
-          children: [blade(0), blade(2 * math.pi / 3), blade(4 * math.pi / 3), Container(width: 38, height: 38, decoration: BoxDecoration(shape: BoxShape.circle, color: color, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]))],
+          children: [blade(0), blade(2 * math.pi / 3), blade(4 * math.pi / 3), Container(width: 32, height: 32, decoration: BoxDecoration(shape: BoxShape.circle, color: color, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]))],
         ),
-      ),
-    );
-  }
-
-  // ★ [디자인 개선] 정보 카드 위젯
-  Widget _infoCard({
-    required String label,
-    required String value,
-    required IconData icon,
-    required Color iconColor,
-  }) {
-    return Container(
-      height: 100,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Color(0xFF838699),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Icon(icon, size: 18, color: iconColor),
-            ],
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 20, // 폰트 사이즈 조정 (긴 텍스트 대응)
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF32343E),
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
       ),
     );
   }
