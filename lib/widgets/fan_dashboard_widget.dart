@@ -3,18 +3,20 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:ambient_node/widgets/app_top_bar.dart';
 import 'package:ambient_node/screens/timer_setting_screen.dart';
-// [필수] 리모컨 위젯 import
 import 'package:ambient_node/widgets/remote_control_dpad.dart';
 
 class FanDashboardWidget extends StatefulWidget {
   final bool connected;
   final VoidCallback onConnect;
-  final int speed;
+  final int speed; // 0~5 단계
   final Function(double) setSpeed;
-  final bool trackingOn;
-  final Function(bool) setTrackingOn;
+
+  // 모드 및 상태
+  final String currentMode;
+  final Function(String) onModeChange;
+  final Function(int) onTimerSet;
+
   final VoidCallback openAnalytics;
-  // [수정] 직접 제어 콜백
   final Function(String, int) onManualControl;
   final String deviceName;
   final String? selectedUserName;
@@ -26,8 +28,9 @@ class FanDashboardWidget extends StatefulWidget {
     required this.onConnect,
     required this.speed,
     required this.setSpeed,
-    required this.trackingOn,
-    required this.setTrackingOn,
+    required this.currentMode,
+    required this.onModeChange,
+    required this.onTimerSet,
     required this.openAnalytics,
     required this.onManualControl,
     this.deviceName = 'Ambient',
@@ -44,7 +47,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   late final AnimationController _controller;
   static const Color _fanBlue = Color(0xFF3A91FF);
 
-  bool _isNatureMode = false;
+  bool _isRemoteActive = false;
   Timer? _countdownTimer;
   Duration? _remainingTime;
 
@@ -55,14 +58,17 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     );
+
     if (widget.connected) _updateRotation();
   }
 
   @override
   void didUpdateWidget(FanDashboardWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 연결, 속도, 모드 변경 시 애니메이션 및 상태 업데이트
     if (widget.connected != oldWidget.connected ||
-        widget.speed != oldWidget.speed) {
+        widget.speed != oldWidget.speed ||
+        widget.currentMode != oldWidget.currentMode) {
       _updateRotation();
     }
   }
@@ -75,22 +81,39 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   }
 
   void _updateRotation() {
-    if (widget.connected && widget.speed > 0) {
-      final durationMs = 2400 ~/ widget.speed;
+    if (!widget.connected) {
+      _controller.stop();
+      return;
+    }
+
+    final bool isNature = widget.currentMode == 'natural_wind';
+
+    // 속도가 있거나 자연풍 모드일 때 회전
+    if (widget.speed > 0 || isNature) {
+      int durationMs;
+      if (isNature) {
+        // 자연풍: 속도 1과 동일하게 (느리게)
+        durationMs = 2400;
+      } else {
+        // 일반: 속도에 따라 (속도 1=2400ms ~ 속도 5=480ms)
+        durationMs = 2400 ~/ widget.speed;
+      }
       _controller.duration = Duration(milliseconds: durationMs);
-      if (!_controller.isAnimating) _controller.repeat();
+      _controller.repeat();
     } else {
       _controller.stop();
     }
   }
 
-  // ... (타이머 로직 등 기존 헬퍼 메소드 유지) ...
   Future<void> _handleTimerSetting() async {
     final result = await Navigator.push<Duration>(
       context,
       MaterialPageRoute(builder: (context) => TimerSettingScreen(initialDuration: _remainingTime)),
     );
+
     if (result != null) {
+      widget.onTimerSet(result.inSeconds); // 메인으로 전송
+
       _countdownTimer?.cancel();
       if (result.inSeconds == 0) {
         setState(() => _remainingTime = null);
@@ -102,7 +125,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
             if (_remainingTime!.inSeconds > 0) {
               _remainingTime = _remainingTime! - const Duration(seconds: 1);
             } else {
-              widget.setSpeed(0);
               _remainingTime = null;
               timer.cancel();
             }
@@ -117,10 +139,31 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
     return "${twoDigits(d.inHours)}:${twoDigits(d.inMinutes.remainder(60))}:${twoDigits(d.inSeconds.remainder(60))}";
   }
 
+  // ★ [안내 메시지] 자연풍 모드일 때 조작 시도 시 호출
+  void _showNatureModeWarning() {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          "자연풍 모드에서는 풍량을 조절할 수 없습니다.\n자연풍을 먼저 꺼주세요.",
+          style: TextStyle(fontFamily: 'Sen', color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: const Color(0xFF2D3142),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentSpeed = widget.speed;
-    final color = (widget.connected && currentSpeed > 0) ? _fanBlue : Colors.grey.shade400;
+    final bool isNature = widget.currentMode == 'natural_wind';
+
+    // ★ 자연풍이거나 연결 끊김 상태면 컨트롤 색상을 회색으로 처리
+    final bool canControlSpeed = widget.connected && !isNature;
+    final Color controlColor = canControlSpeed ? _fanBlue : Colors.grey.shade300;
 
     return DefaultTextStyle.merge(
       style: const TextStyle(fontFamily: 'Sen'),
@@ -158,7 +201,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
                       ),
                     ),
 
-                  // 2. 통합 컨트롤 패널 (팬 비주얼 + 속도 제어 + 방향 제어)
+                  // 2. 메인 팬 & 속도 제어 패널
                   Container(
                     width: double.infinity,
                     constraints: const BoxConstraints(maxWidth: 400),
@@ -167,16 +210,12 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(32),
                       boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
-                        ),
+                        BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 24, offset: const Offset(0, 8)),
                       ],
                     ),
                     child: Column(
                       children: [
-                        // A. 팬 비주얼 (크기 축소: 240 -> 180)
+                        // A. 팬 비주얼
                         SizedBox(
                           height: 180,
                           child: Stack(
@@ -190,84 +229,64 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
                                   border: Border.all(color: const Color(0xFFEEF2F6), width: 1),
                                 ),
                               ),
-                              _buildFanBlades(color), // 기존 팬 블레이드 위젯 (크기 자동 조정됨)
-                              if (_isNatureMode && widget.connected)
-                                Positioned(top: 0, right: 0, child: Icon(Icons.grass, color: Colors.green[400])),
+                              _buildFanBlades(canControlSpeed || isNature ? _fanBlue : Colors.grey.shade400), // 비주얼은 자연풍일 때도 파란색 유지
+                              if (isNature && widget.connected)
+                                Positioned(top: 0, right: 0, child: Icon(Icons.grass, color: Colors.green[400], size: 28)),
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 24),
 
-                        // B. 속도 조절 (Speed Control)
+                        // ★ [수정됨] B. 속도 조절 (자연풍 모드 시 버튼 잠금 로직 적용)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            // (-) 버튼
                             _roundControlButton(
                               icon: Icons.remove,
-                              onTap: widget.connected
+                              color: controlColor, // 회색 or 파란색
+                              onTap: canControlSpeed
                                   ? () => widget.setSpeed(((currentSpeed - 1).clamp(0, 5)).toDouble())
-                                  : () {},
-                              color: widget.connected ? _fanBlue : Colors.grey.shade300,
+                                  : () {
+                                // 자연풍 모드인데 버튼 누르면 경고 메시지
+                                if (isNature && widget.connected) _showNatureModeWarning();
+                              },
                             ),
                             const SizedBox(width: 24),
+
+                            // 중앙 텍스트
                             Column(
                               children: [
                                 Text(
-                                  _isNatureMode ? "Nature" : '$currentSpeed',
+                                  isNature ? "Nature" : '$currentSpeed',
                                   style: TextStyle(
-                                    fontSize: _isNatureMode ? 20 : 36,
+                                    fontSize: isNature ? 24 : 36,
                                     fontWeight: FontWeight.w800,
-                                    color: widget.connected ? _fanBlue : Colors.grey,
+                                    color: isNature ? Colors.green[400] : (widget.connected ? _fanBlue : Colors.grey),
                                     height: 1.0,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  "FAN SPEED",
-                                  style: TextStyle(color: Colors.grey[400], fontSize: 10, fontWeight: FontWeight.bold),
+                                    isNature ? "MODE ACTIVE" : "FAN SPEED",
+                                    style: TextStyle(color: Colors.grey[400], fontSize: 10, fontWeight: FontWeight.bold)
                                 ),
                               ],
                             ),
+
                             const SizedBox(width: 24),
+
+                            // (+) 버튼
                             _roundControlButton(
                               icon: Icons.add,
-                              onTap: widget.connected
+                              color: controlColor, // 회색 or 파란색
+                              onTap: canControlSpeed
                                   ? () => widget.setSpeed(((currentSpeed + 1).clamp(0, 5)).toDouble())
-                                  : () {},
-                              color: widget.connected ? _fanBlue : Colors.grey.shade300,
+                                  : () {
+                                if (isNature && widget.connected) _showNatureModeWarning();
+                              },
                             ),
                           ],
-                        ),
-
-                        const SizedBox(height: 32),
-                        const Divider(height: 1, indent: 20, endIndent: 20),
-                        const SizedBox(height: 24),
-
-                        // C. 모터 제어 (Motor Control - D-Pad)
-                        // 통계 카드 자리에 리모컨을 배치
-                        Text(
-                          "MOTOR CONTROL",
-                          style: TextStyle(color: Colors.grey[400], fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.0),
-                        ),
-                        const SizedBox(height: 16),
-
-                        // D-Pad 위젯 (크기 적절히 조절)
-                        SizedBox(
-                          height: 220, // 충분한 터치 영역 확보
-                          child: RemoteControlDpad(
-                            size: 200, // 너무 크지 않게 조절
-                            onUp: () => widget.onManualControl('up', 1),
-                            onUpEnd: () => widget.onManualControl('up', 0),
-                            onDown: () => widget.onManualControl('down', 1),
-                            onDownEnd: () => widget.onManualControl('down', 0),
-                            onLeft: () => widget.onManualControl('left', 1),
-                            onLeftEnd: () => widget.onManualControl('left', 0),
-                            onRight: () => widget.onManualControl('right', 1),
-                            onRightEnd: () => widget.onManualControl('right', 0),
-                            onCenter: () => widget.onManualControl('center', 1),
-                            onCenterEnd: () => widget.onManualControl('center', 0),
-                          ),
                         ),
                       ],
                     ),
@@ -275,40 +294,28 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
 
                   const SizedBox(height: 16),
 
-                  // 3. 부가 기능 버튼들 (가로 배치)
-                  Container(
+                  // 3. 하단 패널
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    width: double.infinity,
                     constraints: const BoxConstraints(maxWidth: 400),
-                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(32),
                       boxShadow: [
                         BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
                       ],
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildFunctionButton(
-                          icon: Icons.timer_outlined,
-                          label: "Timer",
-                          isActive: _remainingTime != null,
-                          onTap: _handleTimerSetting,
-                        ),
-                        _buildFunctionButton(
-                          icon: Icons.sync,
-                          label: "Tracking", // AI 모드
-                          isActive: widget.trackingOn,
-                          onTap: () => widget.setTrackingOn(!widget.trackingOn),
-                        ),
-                        _buildFunctionButton(
-                          icon: Icons.grass,
-                          label: "Nature",
-                          isActive: _isNatureMode,
-                          onTap: () => setState(() => _isNatureMode = !_isNatureMode),
-                        ),
-                        // 리모컨 버튼은 이제 필요 없으므로 삭제하거나 다른 기능(예: 설정)으로 대체 가능
-                      ],
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      transitionBuilder: (Widget child, Animation<double> animation) {
+                        return FadeTransition(opacity: animation, child: child);
+                      },
+                      child: _isRemoteActive
+                          ? _buildRemoteControlPanel()
+                          : _buildFunctionButtonsRow(),
                     ),
                   ),
                   const SizedBox(height: 30),
@@ -321,23 +328,108 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
     );
   }
 
-  // 버튼 스타일 위젯들 (기존 로직 사용)
+  Widget _buildFunctionButtonsRow() {
+    return Row(
+      key: const ValueKey('buttons'),
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        _buildFunctionButton(
+          icon: Icons.timer_outlined,
+          label: "Timer",
+          isActive: _remainingTime != null,
+          onTap: _handleTimerSetting,
+        ),
+        _buildFunctionButton(
+          icon: Icons.sync,
+          label: "Tracking",
+          isActive: widget.currentMode == 'ai_tracking',
+          onTap: () {
+            final nextMode = widget.currentMode == 'ai_tracking' ? 'manual_control' : 'ai_tracking';
+            widget.onModeChange(nextMode);
+          },
+        ),
+        _buildFunctionButton(
+          icon: Icons.grass,
+          label: "Nature",
+          isActive: widget.currentMode == 'natural_wind',
+          onTap: () {
+            final nextMode = widget.currentMode == 'natural_wind' ? 'manual_control' : 'natural_wind';
+            widget.onModeChange(nextMode);
+          },
+        ),
+        _buildFunctionButton(
+          icon: Icons.gamepad_outlined,
+          label: "Remote",
+          isActive: false,
+          onTap: () {
+            setState(() {
+              _isRemoteActive = true;
+            });
+            // 리모컨 진입 시 수동 모드 변경
+            if (widget.currentMode != 'manual_control') {
+              widget.onModeChange('manual_control');
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRemoteControlPanel() {
+    return Column(
+      key: const ValueKey('remote'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10, left: 8, right: 0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Manual Control",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D3142)),
+              ),
+              IconButton(
+                onPressed: () => setState(() => _isRemoteActive = false),
+                icon: const Icon(Icons.close_rounded, color: Colors.grey),
+                visualDensity: VisualDensity.compact,
+              )
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 240,
+          child: RemoteControlDpad(
+            size: 220,
+            onUp: () => widget.onManualControl('up', 1),
+            onUpEnd: () => widget.onManualControl('up', 0),
+            onDown: () => widget.onManualControl('down', 1),
+            onDownEnd: () => widget.onManualControl('down', 0),
+            onLeft: () => widget.onManualControl('left', 1),
+            onLeftEnd: () => widget.onManualControl('left', 0),
+            onRight: () => widget.onManualControl('right', 1),
+            onRightEnd: () => widget.onManualControl('right', 0),
+            onCenter: () => widget.onManualControl('center', 1),
+            onCenterEnd: () => widget.onManualControl('center', 0),
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    );
+  }
+
   Widget _roundControlButton({required IconData icon, required VoidCallback onTap, required Color color}) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(40),
       child: Container(
         width: 50, height: 50,
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
         child: Icon(icon, size: 24, color: color),
       ),
     );
   }
 
-  // 기능 버튼 빌더 (기존과 동일)
   Widget _buildFunctionButton({required IconData icon, required String label, required bool isActive, required VoidCallback onTap}) {
     return GestureDetector(
       onTap: widget.connected ? onTap : null,
@@ -345,13 +437,13 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
         children: [
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            width: 48, height: 48,
+            width: 52, height: 52,
             decoration: BoxDecoration(
-              color: isActive ? _fanBlue : Colors.grey[100],
-              borderRadius: BorderRadius.circular(16),
+              color: isActive ? _fanBlue : const Color(0xFFF5F7FA),
+              borderRadius: BorderRadius.circular(18),
               boxShadow: isActive ? [BoxShadow(color: _fanBlue.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4))] : [],
             ),
-            child: Icon(icon, color: isActive ? Colors.white : Colors.grey[500], size: 22),
+            child: Icon(icon, color: isActive ? Colors.white : Colors.grey[500], size: 24),
           ),
           const SizedBox(height: 8),
           Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isActive ? _fanBlue : Colors.grey[400])),
@@ -360,13 +452,12 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
     );
   }
 
-  // 팬 날개 빌드 함수 (기존과 동일)
   Widget _buildFanBlades(Color color) {
     Widget blade(double angle) {
       return Transform.rotate(
         angle: angle,
         child: Container(
-          width: 20, height: 85, // 사이즈 축소
+          width: 20, height: 85,
           decoration: BoxDecoration(
             gradient: LinearGradient(colors: [color.withOpacity(0.9), color.withOpacity(0.2)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
             borderRadius: BorderRadius.circular(16),
@@ -380,7 +471,12 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
         angle: _controller.value * 2 * math.pi,
         child: Stack(
           alignment: Alignment.center,
-          children: [blade(0), blade(2 * math.pi / 3), blade(4 * math.pi / 3), Container(width: 32, height: 32, decoration: BoxDecoration(shape: BoxShape.circle, color: color, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]))],
+          children: [
+            blade(0),
+            blade(2 * math.pi / 3),
+            blade(4 * math.pi / 3),
+            Container(width: 32, height: 32, decoration: BoxDecoration(shape: BoxShape.circle, color: color, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]))
+          ],
         ),
       ),
     );

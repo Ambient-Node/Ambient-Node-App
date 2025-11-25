@@ -4,13 +4,18 @@ import 'package:ambient_node/widgets/fan_dashboard_widget.dart';
 class DashboardScreen extends StatelessWidget {
   final bool connected;
   final VoidCallback onConnect;
+
   final int speed;
   final Function(int) setSpeed;
-  final bool trackingOn;
-  final Function(bool) setTrackingOn;
-  final VoidCallback openAnalytics;
-  // [수정] 리모컨 탭 이동 콜백(onRemoteTap) 삭제 -> 직접 제어 콜백(onManualControl) 추가
+
+  // ★ [수정] trackingOn, setTrackingOn 삭제 -> currentMode, onModeChange 추가
+  final String currentMode;
+  final Function(String) onModeChange;
+
+  final Function(int) onTimerSet;
   final Function(String, int) onManualControl;
+  final VoidCallback openAnalytics;
+
   final String deviceName;
   final String? selectedUserName;
   final String? selectedUserImagePath;
@@ -21,10 +26,13 @@ class DashboardScreen extends StatelessWidget {
     required this.onConnect,
     required this.speed,
     required this.setSpeed,
-    required this.trackingOn,
-    required this.setTrackingOn,
+    // ★ [수정] 생성자 파라미터 변경
+    required this.currentMode,
+    required this.onModeChange,
+
+    required this.onTimerSet,
+    required this.onManualControl,
     required this.openAnalytics,
-    required this.onManualControl, // [수정]
     this.deviceName = 'Ambient',
     this.selectedUserName,
     this.selectedUserImagePath,
@@ -45,11 +53,15 @@ class DashboardScreen extends StatelessWidget {
                 selectedUserImagePath: selectedUserImagePath,
                 onConnect: onConnect,
                 speed: speed,
-                setSpeed: (double value) => setSpeed(value.round()),
-                trackingOn: trackingOn,
-                setTrackingOn: setTrackingOn,
+                setSpeed: (double value) {
+                  setSpeed(value.round());
+                },
+                // ★ [수정] 하위 위젯으로 전달
+                currentMode: currentMode,
+                onModeChange: onModeChange,
+                onTimerSet: onTimerSet,
+                onManualControl: onManualControl,
                 openAnalytics: openAnalytics,
-                onManualControl: onManualControl, // [수정] 전달
               ),
             ),
           ],
