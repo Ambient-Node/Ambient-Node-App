@@ -15,7 +15,7 @@ class ControlScreen extends StatefulWidget {
   final String deviceName;
   final VoidCallback onConnect;
   final String? selectedUserName;
-  final Function(String?, String?) onUserSelectionChanged;
+  final Function(String?, String?, String?) onUserSelectionChanged;
   final Function(Map<String, dynamic>)? onUserDataSend;
   final Stream<Map<String, dynamic>>? dataStream;
 
@@ -48,9 +48,7 @@ class _ControlScreenState extends State<ControlScreen> {
 
     _dataSubscription = widget.dataStream?.listen((data) {
       if (!mounted) return;
-      setState(() {
-        _handleIncomingData(data);
-      });
+      _handleIncomingData(data);
     });
   }
 
@@ -70,16 +68,13 @@ class _ControlScreenState extends State<ControlScreen> {
       } else {
         print("[ControlScreen] User registration failed: ${data['error']}");
       }
-    }
-    else if (type == 'FACE_DETECTED') {
+    } else if (type == 'FACE_DETECTED') {
       print("[ControlScreen] Face detected: ${data['user_id']}");
-    }
-    else if (type == 'FACE_LOST') {
+    } else if (type == 'FACE_LOST') {
       print("[ControlScreen] Face lost: ${data['user_id']}");
     }
   }
 
-  // 현재 선택된 사용자 목록을 반환하는 헬퍼 메서드
   List<Map<String, dynamic>> _getSelectedUsersList() {
     return selectedUserIndices.map((idx) {
       final user = users[idx];
@@ -143,14 +138,12 @@ class _ControlScreenState extends State<ControlScreen> {
       if (widget.connected && widget.onUserDataSend != null) {
         final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
 
-        // 현재 선택된 사용자 포함
         widget.onUserDataSend!.call({
           'action': 'user_register',
           'user_id': generatedUserId,
           'username': result['name']!,
           'image_base64': base64Image,
           'timestamp': DateTime.now().toIso8601String(),
-          'selected_users': _getSelectedUsersList(),
         });
       }
     }
@@ -190,28 +183,23 @@ class _ControlScreenState extends State<ControlScreen> {
         if (widget.connected && widget.onUserDataSend != null) {
           final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
 
-          // 현재 선택된 사용자 포함
           widget.onUserDataSend!.call({
             'action': 'user_update',
             'user_id': updatedUser.userId,
             'username': result['name']!,
             'image_base64': base64Image,
             'timestamp': DateTime.now().toIso8601String(),
-            'selected_users': _getSelectedUsersList(),
           });
           print('[ControlScreen] User update request sent: ${result['name']}');
         }
-
       } else if (result['action'] == 'delete') {
         final userToDelete = users[index];
 
         if (widget.connected && widget.onUserDataSend != null) {
-          // 현재 선택된 사용자 포함
           widget.onUserDataSend!.call({
             'action': 'user_delete',
             'user_id': userToDelete.userId,
             'timestamp': DateTime.now().toIso8601String(),
-            'selected_users': _getSelectedUsersList(),
           });
         }
         _deleteUser(index);
@@ -235,10 +223,10 @@ class _ControlScreenState extends State<ControlScreen> {
       if (selectedUserIndices.isNotEmpty) {
         selectedUserIndex = selectedUserIndices[0];
         final firstUser = users[selectedUserIndex!];
-        widget.onUserSelectionChanged(firstUser.name, firstUser.imagePath);
+        widget.onUserSelectionChanged(firstUser.name, firstUser.imagePath, firstUser.userId);
       } else {
         selectedUserIndex = null;
-        widget.onUserSelectionChanged(null, null);
+        widget.onUserSelectionChanged(null, null, null);
       }
     });
 
@@ -272,9 +260,9 @@ class _ControlScreenState extends State<ControlScreen> {
 
       if (selectedUserIndices.isNotEmpty) {
         final firstUser = users[selectedUserIndices[0]];
-        widget.onUserSelectionChanged(firstUser.name, firstUser.imagePath);
+        widget.onUserSelectionChanged(firstUser.name, firstUser.imagePath, firstUser.userId);
       } else {
-        widget.onUserSelectionChanged(null, null);
+        widget.onUserSelectionChanged(null, null, null);
       }
     });
 
@@ -287,54 +275,34 @@ class _ControlScreenState extends State<ControlScreen> {
       return;
     }
 
-    if (selectedUserIndices.isEmpty) {
-      if (widget.onUserDataSend != null) {
-        widget.onUserDataSend!.call({
-          'action': 'user_select',
-          'user_list': [],
-          'timestamp': DateTime.now().toIso8601String(),
-          'selected_users': [],
-        });
-
-        // 선택 해제 시 Manual 모드로
-        widget.onUserDataSend!.call({
-          'action': 'mode_change',
-          'mode': 'manual',
-          'timestamp': DateTime.now().toIso8601String(),
-          'selected_users': [],
-        });
-
-        isManualControlActive = false;
-      }
-      return;
-    }
-
     List<Map<String, dynamic>> selectedUsers = _getSelectedUsersList();
 
     if (widget.onUserDataSend != null) {
-      // 사용자 선택 전송
       widget.onUserDataSend!.call({
         'action': 'user_select',
         'user_list': selectedUsers,
         'timestamp': DateTime.now().toIso8601String(),
-        'selected_users': selectedUsers,
       });
 
-      // AI 모드로 전환 (리모컨 조작 중이 아니면)
-      if (!isManualControlActive) {
+      if (selectedUsers.isEmpty) {
+        widget.onUserDataSend!.call({
+          'action': 'mode_change',
+          'mode': 'manual',
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+        isManualControlActive = false;
+      } else if (!isManualControlActive) {
         widget.onUserDataSend!.call({
           'action': 'mode_change',
           'mode': 'ai',
           'timestamp': DateTime.now().toIso8601String(),
-          'selected_users': selectedUsers,
         });
       }
     }
 
     print('[ControlScreen] Selected users sent: ${selectedUsers.length} users');
+    print('[ControlScreen] User list: $selectedUsers');
   }
-
-
 
   void _reorderSelectedUsers() {
     selectedUserIndices.sort();
@@ -344,7 +312,7 @@ class _ControlScreenState extends State<ControlScreen> {
     setState(() {
       selectedUserIndices.clear();
       selectedUserIndex = null;
-      widget.onUserSelectionChanged(null, null);
+      widget.onUserSelectionChanged(null, null, null);
     });
 
     if (widget.connected && widget.onUserDataSend != null) {
@@ -352,7 +320,6 @@ class _ControlScreenState extends State<ControlScreen> {
         'action': 'user_select',
         'user_list': [],
         'timestamp': DateTime.now().toIso8601String(),
-        'selected_users': [],
       });
     }
   }
@@ -372,40 +339,34 @@ class _ControlScreenState extends State<ControlScreen> {
     final selectedUsers = _getSelectedUsersList();
 
     if (widget.onUserDataSend != null) {
-      // 리모컨 누를 때 (toggleOn == 1)
       if (toggleOn == 1) {
         isManualControlActive = true;
 
-        // Manual 모드로 전환
         widget.onUserDataSend!.call({
           'action': 'mode_change',
           'mode': 'manual',
+          'user_list': selectedUsers,
           'timestamp': DateTime.now().toIso8601String(),
-          'selected_users': selectedUsers,
         });
-      }
-      // 리모컨 뗄 때 (toggleOn == 0)
-      else if (toggleOn == 0) {
+      } else if (toggleOn == 0) {
         isManualControlActive = false;
 
-        // 사용자가 선택되어 있으면 AI 모드로 복귀
         if (selectedUserIndices.isNotEmpty) {
           widget.onUserDataSend!.call({
             'action': 'mode_change',
             'mode': 'ai',
+            'user_list': selectedUsers,
             'timestamp': DateTime.now().toIso8601String(),
-            'selected_users': selectedUsers,
           });
         }
       }
 
-      // 각도 변경 명령
       widget.onUserDataSend!.call({
         'action': 'angle_change',
         'direction': formattedDirection,
         'toggleOn': toggleOn,
+        'user_list': selectedUsers,
         'timestamp': DateTime.now().toIso8601String(),
-        'selected_users': selectedUsers,
       });
     }
 
@@ -417,8 +378,6 @@ class _ControlScreenState extends State<ControlScreen> {
       print('[ControlScreen] AnalyticsService error: $e');
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -441,7 +400,6 @@ class _ControlScreenState extends State<ControlScreen> {
                   : null,
             ),
             const SizedBox(height: 16),
-
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
@@ -453,23 +411,26 @@ class _ControlScreenState extends State<ControlScreen> {
                       icon: const Icon(Icons.clear_all, size: 16),
                       label: const Text('전체 해제'),
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         foregroundColor: Colors.orange,
                         backgroundColor: Colors.orange.withOpacity(0.1),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
                       ),
                     )
                   else
                     const SizedBox.shrink(),
-
                   TextButton.icon(
-                    onPressed: selectedUserIndices.isNotEmpty && selectedUserIndices.length == 1
+                    onPressed: selectedUserIndices.isNotEmpty &&
+                        selectedUserIndices.length == 1
                         ? () => _editUser(selectedUserIndices[0])
                         : null,
                     icon: Icon(
                       Icons.edit_outlined,
                       size: 18,
-                      color: selectedUserIndices.isNotEmpty && selectedUserIndices.length == 1
+                      color: selectedUserIndices.isNotEmpty &&
+                          selectedUserIndices.length == 1
                           ? const Color(0xFF3A90FF)
                           : Colors.grey,
                     ),
@@ -479,24 +440,27 @@ class _ControlScreenState extends State<ControlScreen> {
                         fontFamily: 'Sen',
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: selectedUserIndices.isNotEmpty && selectedUserIndices.length == 1
+                        color: selectedUserIndices.isNotEmpty &&
+                            selectedUserIndices.length == 1
                             ? const Color(0xFF3A90FF)
                             : Colors.grey,
                       ),
                     ),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      backgroundColor: selectedUserIndices.isNotEmpty && selectedUserIndices.length == 1
+                      padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      backgroundColor: selectedUserIndices.isNotEmpty &&
+                          selectedUserIndices.length == 1
                           ? const Color(0xFF3A90FF).withOpacity(0.1)
                           : Colors.grey.withOpacity(0.1),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 12),
-
             SizedBox(
               height: 110,
               child: ListView.builder(
@@ -509,9 +473,8 @@ class _ControlScreenState extends State<ControlScreen> {
                   }
                   final userIndex = index - 1;
                   final isSelected = selectedUserIndices.contains(userIndex);
-                  final selectionOrder = isSelected
-                      ? selectedUserIndices.indexOf(userIndex) + 1
-                      : null;
+                  final selectionOrder =
+                  isSelected ? selectedUserIndices.indexOf(userIndex) + 1 : null;
                   return _UserCard(
                     user: users[userIndex],
                     isSelected: isSelected,
@@ -522,7 +485,6 @@ class _ControlScreenState extends State<ControlScreen> {
               ),
             ),
             const SizedBox(height: 40),
-
             // D-Pad controller
             Expanded(
               child: Center(
@@ -663,7 +625,8 @@ class _UserCard extends StatelessWidget {
           border: isSelected ? Border.all(color: borderColor, width: 3) : null,
           boxShadow: [
             BoxShadow(
-              color: isSelected ? borderColor.withOpacity(0.2) : Colors.black.withOpacity(0.05),
+              color:
+              isSelected ? borderColor.withOpacity(0.2) : Colors.black.withOpacity(0.05),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),
