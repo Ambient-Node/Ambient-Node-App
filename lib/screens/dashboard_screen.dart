@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ambient_node/widgets/fan_dashboard_widget.dart';
+import 'package:ambient_node/screens/timer_setting_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   final bool connected;
@@ -9,6 +10,7 @@ class DashboardScreen extends StatelessWidget {
   final bool trackingOn;
   final Function(bool) setTrackingOn;
   final VoidCallback openAnalytics;
+  final VoidCallback onRemoteTap; // ★ 리모컨 화면 이동 콜백 추가
   final String deviceName;
   final String? selectedUserName;
   final String? selectedUserImagePath;
@@ -22,6 +24,7 @@ class DashboardScreen extends StatelessWidget {
     required this.trackingOn,
     required this.setTrackingOn,
     required this.openAnalytics,
+    required this.onRemoteTap, // ★ 필수
     this.deviceName = 'Ambient',
     this.selectedUserName,
     this.selectedUserImagePath,
@@ -48,6 +51,7 @@ class DashboardScreen extends StatelessWidget {
                 trackingOn: trackingOn,
                 setTrackingOn: setTrackingOn,
                 openAnalytics: openAnalytics,
+                onRemoteTap: onRemoteTap, // ★ 전달
               ),
             ),
           ],

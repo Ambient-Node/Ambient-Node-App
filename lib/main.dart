@@ -1,18 +1,29 @@
 import 'dart:async';
-import 'dart:convert'; // jsonEncode 등을 위해 필요할 수 있음 (bleService 내부에서 처리하지만 안전하게)
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // [추가] 상태바 제어를 위해 필요
+
+// [필수] 화면들 import
 import 'package:ambient_node/screens/splash_screen.dart';
 import 'package:ambient_node/screens/dashboard_screen.dart';
 import 'package:ambient_node/screens/analytics_screen.dart';
 import 'package:ambient_node/screens/control_screen.dart';
 import 'package:ambient_node/screens/device_selection_screen.dart';
 import 'package:ambient_node/screens/settings_screen.dart';
+
+// [필수] 서비스들 import
 import 'package:ambient_node/services/analytics_service.dart';
 import 'package:ambient_node/services/ble_service.dart';
 
-class AiService {}
-
 void main() {
+  // [추가] 상태바 투명하게 설정 (앱이 더 넓어보임)
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark, // 어두운 아이콘
+    systemNavigationBarColor: Colors.white,
+    systemNavigationBarIconBrightness: Brightness.dark,
+  ));
+
   runApp(const MyApp());
 }
 
@@ -25,7 +36,13 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Ambient Node',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        // [디자인] 글로벌 테마 설정
+        fontFamily: 'Sen',
+        scaffoldBackgroundColor: const Color(0xFFF6F7F8), // 공통 배경색
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF3A91FF), // 메인 블루 컬러
+          background: const Color(0xFFF6F7F8),
+        ),
         useMaterial3: true,
       ),
       home: const SplashWrapper(),
@@ -68,6 +85,7 @@ class _MainShellState extends State<MainShell> {
   int _index = 0;
   late final BleService ble;
 
+  // BLE 데이터 스트림 중계용 컨트롤러
   final _bleDataStreamController = StreamController<Map<String, dynamic>>.broadcast();
   StreamSubscription? _bleStateSub;
   StreamSubscription? _bleDataSub;
@@ -106,11 +124,15 @@ class _MainShellState extends State<MainShell> {
     });
 
     _bleDataSub = ble.dataStream.listen((data) {
-      print('🔵 [Main] 데이터 수신: $data');
+      // ControlScreen 등 다른 곳에서 구독할 수 있도록 중계
       _bleDataStreamController.add(data);
     });
 
-    AnalyticsService.onUserChanged(selectedUserName);
+    try {
+      AnalyticsService.onUserChanged(selectedUserName);
+    } catch (e) {
+      print('Analytics error: $e');
+    }
   }
 
   @override
@@ -134,9 +156,7 @@ class _MainShellState extends State<MainShell> {
         MaterialPageRoute(
           builder: (context) => DeviceSelectionScreen(
             bleService: ble,
-            onConnectionChanged: (isConnected) {
-              // 연결 성공 시 초기 상태 전송은 하지 않음 (사용자가 조작할 때 전송)
-            },
+            onConnectionChanged: (isConnected) {},
             onDeviceNameChanged: (name) {
               if (mounted) setState(() => deviceName = name);
             },
@@ -148,42 +168,41 @@ class _MainShellState extends State<MainShell> {
 
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontFamily: 'Sen')),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
-  // [수정됨] 1. 풍속 변경 전용 함수 (Action 포함)
   void _sendSpeedChange(int newSpeed) {
     if (!connected) return;
-
-    // 안전장치: 0~5 사이로 강제 변환
     int targetSpeed = newSpeed.clamp(0, 5);
-
     final data = {
-      'action': 'speed_change', // Gateway가 인식하는 필수 키
+      'action': 'speed_change',
       'speed': targetSpeed,
       'timestamp': DateTime.now().toIso8601String(),
     };
-
     try {
-      print('📤 [BLE] 풍속 변경 요청: $data');
       ble.sendJson(data);
     } catch (e) {
       print('전송 실패: $e');
     }
   }
 
-  // [수정됨] 2. 모드(트래킹) 변경 전용 함수 (Action 포함)
-  void _sendModeChange(bool isAiMode) {
+  void _sendModeChange(bool isTrackingOn) {
     if (!connected) return;
-
     final data = {
-      'action': 'mode_change', // Gateway가 인식하는 필수 키
-      'mode': isAiMode ? 'ai' : 'manual',
+      'action': 'mode_change',
+      'mode': isTrackingOn ? 'ai' : 'manual',
       'timestamp': DateTime.now().toIso8601String(),
     };
-
     try {
-      print('📤 [BLE] 모드 변경 요청: $data');
       ble.sendJson(data);
     } catch (e) {
       print('전송 실패: $e');
@@ -193,32 +212,32 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final screens = [
+      // 0: 대시보드
       DashboardScreen(
         connected: connected,
         onConnect: handleConnect,
-
         speed: speed,
-        // [중요] setSpeed에서 _sendSpeedChange 호출
         setSpeed: (v) {
           setState(() => speed = v);
           _sendSpeedChange(v);
-          try { AnalyticsService.onSpeedChanged(v); } catch (e) {}
+          try { AnalyticsService.onSpeedChanged(v); } catch (_) {}
         },
-
         trackingOn: trackingOn,
-        // [중요] setTrackingOn에서 _sendModeChange 호출
         setTrackingOn: (v) {
           setState(() => trackingOn = v);
           _sendModeChange(v);
-          try { v ? AnalyticsService.onFaceTrackingStart() : AnalyticsService.onFaceTrackingStop(); } catch (e) {}
+          try {
+            v ? AnalyticsService.onFaceTrackingStart() : AnalyticsService.onFaceTrackingStop();
+          } catch (_) {}
         },
-
         openAnalytics: () => setState(() => _index = 2),
+        onRemoteTap: () => setState(() => _index = 1), // 리모컨 탭으로 이동
         deviceName: deviceName,
         selectedUserName: selectedUserName,
         selectedUserImagePath: selectedUserImagePath,
       ),
 
+      // 1: 제어 (리모컨)
       ControlScreen(
         connected: connected,
         deviceName: deviceName,
@@ -230,87 +249,96 @@ class _MainShellState extends State<MainShell> {
             selectedUserName = userName;
             selectedUserImagePath = userImagePath;
           });
-          try { AnalyticsService.onUserChanged(userName); } catch (e) {}
+          try { AnalyticsService.onUserChanged(userName); } catch (_) {}
         },
-        onUserDataSend: (data) {
-          print('🔵 BLE 전송: $data');
-          ble.sendJson(data);
-        },
+        onUserDataSend: (data) => ble.sendJson(data),
       ),
 
+      // 2: 분석
       AnalyticsScreen(selectedUserName: selectedUserName),
 
+      // 3: 설정
       SettingsScreen(
         connected: connected,
         sendJson: (data) => ble.sendJson(data),
       ),
-
     ];
 
     return Scaffold(
-      body: SafeArea(
-        child: IndexedStack(
-          index: _index,
-          children: screens,
-        ),
+      backgroundColor: const Color(0xFFF6F7F8),
+      extendBody: true, // 바텀 네비게이션바 뒤로 컨텐츠가 보이게 (투명도 효과 극대화)
+      body: IndexedStack(
+        index: _index,
+        children: screens,
       ),
       bottomNavigationBar: Container(
-        height: 89,
+        padding: const EdgeInsets.only(bottom: 20, left: 16, right: 16, top: 10),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Colors.white.withOpacity(0.9), // 살짝 투명하게
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
+              blurRadius: 20,
+              offset: const Offset(0, -5), // 부드러운 그림자
             ),
           ],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _buildNavItem(
-              icon: Icons.dashboard_outlined,
-              label: '대시보드',
-              isSelected: _index == 0,
-              onTap: () => setState(() => _index = 0),
-            ),
-            _buildNavItem(
-              icon: Icons.control_camera,
-              label: '제어',
-              isSelected: _index == 1,
-              onTap: () => setState(() => _index = 1),
-            ),
-            _buildNavItem(
-              icon: Icons.analytics_outlined,
-              label: '분석',
-              isSelected: _index == 2,
-              onTap: () => setState(() => _index = 2),
-            ),
-            _buildNavItem(
-              icon: Icons.settings_outlined,
-              label: '설정',
-              isSelected: _index == 3,
-              onTap: () => setState(() => _index = 3),
-            ),
-          ],
+        child: SafeArea(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildNavItem(0, Icons.dashboard_rounded, "홈"),
+              _buildNavItem(1, Icons.gamepad_rounded, "제어"),
+              _buildNavItem(2, Icons.bar_chart_rounded, "분석"),
+              _buildNavItem(3, Icons.settings_rounded, "설정"),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildNavItem({required IconData icon, required String label, required bool isSelected, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        width: 60,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
+  Widget _buildNavItem(int index, IconData icon, String label) {
+    final isSelected = _index == index;
+    // Analytics 탭에서 사용된 메인 블루 컬러
+    final activeColor = const Color(0xFF3A91FF);
+    final inactiveColor = const Color(0xFF949BA5);
+
+    return GestureDetector(
+      onTap: () => setState(() => _index = index),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutBack, // 튕기는 듯한 부드러운 애니메이션
+        padding: isSelected
+            ? const EdgeInsets.symmetric(horizontal: 20, vertical: 12)
+            : const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor.withOpacity(0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 24, color: isSelected ? const Color(0xFF3A90FF) : const Color(0xFF838799)),
-            const SizedBox(height: 5),
-            Text(label, textAlign: TextAlign.center, style: TextStyle(color: isSelected ? const Color(0xFF3A90FF) : const Color(0xFF838799), fontSize: 13, fontFamily: 'Sen', fontWeight: FontWeight.w400)),
+            Icon(
+              icon,
+              size: 24,
+              color: isSelected ? activeColor : inactiveColor,
+            ),
+            // 선택되었을 때만 텍스트 표시 (공간 효율 + 심플함)
+            if (isSelected) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: activeColor,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  fontFamily: 'Sen',
+                ),
+              ),
+            ],
           ],
         ),
       ),

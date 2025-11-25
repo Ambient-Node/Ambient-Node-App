@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../models/user_analytics.dart';
 import '../services/analytics_service.dart';
-import '../widgets/analytics_charts.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   final String? selectedUserName;
@@ -20,6 +20,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   AnalyticsData? _analyticsData;
   bool _isLoading = true;
 
+  // 디자인 상수
+  static const Color primaryBlue = Color(0xFF3A91FF);
+  static const Color textDark = Color(0xFF2D3142);
+  static const Color textGrey = Color(0xFF9098B1);
+  static const Color bgGrey = Color(0xFFF4F6F8);
+
   @override
   void initState() {
     super.initState();
@@ -35,167 +41,66 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Future<void> _loadAnalytics() async {
-    print(
-        '🔍 _loadAnalytics called - selectedUserName: ${widget.selectedUserName}');
-
     if (widget.selectedUserName == null) {
-      print('❌ No user selected');
-      setState(() {
-        _analyticsData = null;
-        _isLoading = false;
-      });
+      if (mounted) setState(() { _analyticsData = null; _isLoading = false; });
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    if (mounted) setState(() => _isLoading = true);
 
     try {
       final now = DateTime.now();
-      print('📊 Loading analytics for user: ${widget.selectedUserName}');
-
       final data = _isWeekly
-          ? await AnalyticsService.getWeeklyAnalytics(
-              widget.selectedUserName!,
-              now.subtract(Duration(days: now.weekday - 1)), // 주간 시작일
-            )
-          : await AnalyticsService.getDailyAnalytics(
-              widget.selectedUserName!,
-              now,
-            );
+          ? await AnalyticsService.getWeeklyAnalytics(widget.selectedUserName!, now.subtract(Duration(days: now.weekday - 1)))
+          : await AnalyticsService.getDailyAnalytics(widget.selectedUserName!, now);
 
-      print(
-          '✅ Analytics loaded - totalUsageTime: ${data.totalUsageTime.inMinutes} minutes');
-
-      setState(() {
-        _analyticsData = data;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _analyticsData = data;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      print('❌ Error loading analytics: $e');
-      setState(() {
-        _analyticsData = null;
-        _isLoading = false;
-      });
+      if (mounted) setState(() { _analyticsData = null; _isLoading = false; });
     }
-  }
-
-  void _toggleTimeRange() {
-    setState(() {
-      _isWeekly = !_isWeekly;
-    });
-    _loadAnalytics();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7F8),
+      backgroundColor: bgGrey,
       body: SafeArea(
         child: Column(
           children: [
-            // 헤더
-            Container(
-              padding: const EdgeInsets.all(16),
+            // 1. 헤더 (타이틀 + 토글)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
               child: Row(
                 children: [
-                  Text(
-                    '사용자 분석',
+                  const Text(
+                    "Insight",
                     style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
                       fontFamily: 'Sen',
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: textDark,
                     ),
                   ),
                   const Spacer(),
-                  // 일간/주간 토글 버튼과 테스트 데이터 생성 버튼
-                  Row(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildToggleButton('일간', !_isWeekly),
-                            _buildToggleButton('주간', _isWeekly),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // 테스트 데이터 생성 버튼
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF3A91FF),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: IconButton(
-                          onPressed: () async {
-                            print(
-                                '🧪 테스트 데이터 생성 버튼 클릭됨 (사용자: ${widget.selectedUserName})');
-                            try {
-                              await AnalyticsService.generateTestData(
-                                  widget.selectedUserName!);
-                              print('✅ 테스트 데이터 생성 완료');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('테스트 데이터가 생성되었습니다!'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                              // 데이터 새로고침
-                              _loadAnalytics();
-                            } catch (e) {
-                              print('❌ 테스트 데이터 생성 실패: $e');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('테스트 데이터 생성 실패: $e'),
-                                  duration: const Duration(seconds: 3),
-                                ),
-                              );
-                            }
-                          },
-                          icon: const Icon(
-                            Icons.science,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                          tooltip: '테스트 데이터 생성',
-                        ),
-                      ),
-                    ],
-                  ),
+                  _buildSegmentedControl(),
                 ],
               ),
             ),
 
-            // 콘텐츠
+            // 2. 메인 컨텐츠
             Expanded(
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const Center(child: CircularProgressIndicator(color: primaryBlue))
                   : widget.selectedUserName == null
-                      ? _buildNoUserSelected()
-                      : _analyticsData == null
-                          ? _buildNoData()
-                          : _buildAnalyticsContent(),
+                  ? _buildEmptyState()
+                  : _analyticsData == null
+                  ? _buildEmptyState(hasUser: true)
+                  : _buildDashboardContent(),
             ),
           ],
         ),
@@ -203,90 +108,106 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildToggleButton(String text, bool isSelected) {
+  // --- Widgets ---
+
+  Widget _buildSegmentedControl() {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        children: [
+          _buildSegmentBtn("Daily", !_isWeekly),
+          _buildSegmentBtn("Weekly", _isWeekly),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSegmentBtn(String label, bool isSelected) {
     return GestureDetector(
-      onTap: isSelected ? null : _toggleTimeRange,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      onTap: () {
+        if (!isSelected) {
+          setState(() => _isWeekly = !_isWeekly);
+          _loadAnalytics();
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3A91FF) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
+          color: isSelected ? textDark : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Text(
-          text,
+          label,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[600],
-            fontWeight: FontWeight.w600,
             fontFamily: 'Sen',
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: isSelected ? Colors.white : textGrey,
           ),
         ),
       ),
     );
   }
 
-  Widget _buildNoUserSelected() {
-    return Center(
+  // 예쁜 벤토 카드 위젯
+  Widget _buildBentoCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color accentColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.person_outline,
-            size: 64,
-            color: Colors.grey[400],
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: accentColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: accentColor, size: 22),
           ),
           const SizedBox(height: 16),
           Text(
-            '사용자를 선택해주세요',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey[600],
+            value,
+            style: const TextStyle(
               fontFamily: 'Sen',
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: textDark,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
-            '제어 탭에서 사용자를 선택하면\n분석 데이터를 확인할 수 있습니다',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
+            title,
+            style: const TextStyle(
               fontFamily: 'Sen',
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // 테스트 데이터 생성 버튼
-          ElevatedButton.icon(
-            onPressed: () async {
-              print('🧪 테스트 데이터 생성 버튼 클릭됨');
-              try {
-                await AnalyticsService.generateTestData('테스트 사용자');
-                print('✅ 테스트 데이터 생성 완료');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('테스트 데이터가 생성되었습니다!'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              } catch (e) {
-                print('❌ 테스트 데이터 생성 실패: $e');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('테스트 데이터 생성 실패: $e'),
-                    duration: const Duration(seconds: 3),
-                  ),
-                );
-              }
-            },
-            icon: const Icon(Icons.science),
-            label: const Text('테스트 데이터 생성'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF3A91FF),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: textGrey,
             ),
           ),
         ],
@@ -294,125 +215,209 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildNoData() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.analytics_outlined,
-            size: 64,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '분석 데이터가 없습니다',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey[600],
-              fontFamily: 'Sen',
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '선풍기를 사용하면\n분석 데이터가 생성됩니다',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-              fontFamily: 'Sen',
-            ),
-          ),
-          const SizedBox(height: 24),
-          // 테스트 데이터 생성 버튼
-          ElevatedButton.icon(
-            onPressed: () async {
-              await AnalyticsService.generateTestData(widget.selectedUserName!);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('테스트 데이터가 생성되었습니다!'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-              // 데이터 새로고침
-              _loadAnalytics();
-            },
-            icon: const Icon(Icons.science),
-            label: const Text('테스트 데이터 생성'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF3A91FF),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // ... 기존 imports 및 상단 클래스 코드 유지 ...
 
-  Widget _buildAnalyticsContent() {
+  // [수정됨] 대시보드 컨텐츠 빌더
+  Widget _buildDashboardContent() {
     final data = _analyticsData!;
     final totalHours = data.totalUsageTime.inHours;
     final totalMinutes = data.totalUsageTime.inMinutes % 60;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 사용자 정보
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
+          // A. 유저 프로필 카드 (Hero) - 기존과 동일
+          FadeInSlide(
+            delay: 0,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF3A91FF), Color(0xFF6B4DFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              ],
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(color: const Color(0xFF3A91FF).withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 8)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white.withOpacity(0.3), width: 2)),
+                        child: CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Colors.white.withOpacity(0.2),
+                          child: Text(
+                            widget.selectedUserName![0].toUpperCase(),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.selectedUserName!,
+                            style: const TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                          Text(
+                            _isWeekly ? "이번 주 리포트" : "오늘의 리포트",
+                            style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: Colors.white.withOpacity(0.8)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Text("Total Usage", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: Colors.white70)),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        "$totalHours",
+                        style: const TextStyle(fontFamily: 'Sen', fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white, height: 1.0),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 6, left: 4, right: 8),
+                        child: Text("h", style: TextStyle(fontFamily: 'Sen', fontSize: 18, color: Colors.white70)),
+                      ),
+                      Text(
+                        "$totalMinutes",
+                        style: const TextStyle(fontFamily: 'Sen', fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white, height: 1.0),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 6, left: 4),
+                        child: Text("m", style: TextStyle(fontFamily: 'Sen', fontSize: 18, color: Colors.white70)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // B. 그리드 스탯 (Bento Style) - 기존과 동일
+          FadeInSlide(
+            delay: 100,
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: const Color(0xFF3A91FF).withOpacity(0.1),
-                  child: Text(
-                    widget.selectedUserName![0].toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF3A91FF),
-                      fontFamily: 'Sen',
-                    ),
+                Expanded(
+                  child: _buildBentoCard(
+                    title: "Manual Control",
+                    value: "${data.manualControlCount}회",
+                    icon: Icons.touch_app_rounded,
+                    accentColor: const Color(0xFFFF7F50),
                   ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: _buildBentoCard(
+                    title: "Face Tracking",
+                    value: "${data.faceTrackingTime.inMinutes}m",
+                    icon: Icons.face_retouching_natural_rounded,
+                    accentColor: const Color(0xFF00C896),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          FadeInSlide(
+            delay: 200,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildBentoCard(
+                    title: "Avg Speed",
+                    value: "Lv.${_getAverageSpeed(data)}",
+                    icon: Icons.wind_power_rounded,
+                    accentColor: const Color(0xFF3A91FF),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildBentoCard(
+                    title: "Efficiency",
+                    value: "Good",
+                    icon: Icons.eco_rounded,
+                    accentColor: const Color(0xFF8B5CF6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // C. 차트 섹션 (Clean UI)
+          FadeInSlide(
+            delay: 300,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Usage History", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
+                const SizedBox(height: 16),
+
+                // [수정됨] 컨테이너에 clipBehavior 추가하여 그래프 넘침 방지
+                Container(
+                  height: 220,
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                  ),
+                  clipBehavior: Clip.hardEdge, // ★ 중요: 그래프가 튀어나가지 않도록 자름
+                  child: _buildBarChart(data),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // D. 파이 차트 (Donut Style) - 기존과 동일
+          FadeInSlide(
+            delay: 400,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Speed Preference", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                  ),
+                  child: Row(
                     children: [
-                      Text(
-                        widget.selectedUserName!,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Sen',
-                        ),
+                      SizedBox(
+                        height: 140,
+                        width: 140,
+                        child: _buildDonutChart(data),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _isWeekly ? '주간 분석' : '일간 분석',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                          fontFamily: 'Sen',
+                      const SizedBox(width: 24),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: _buildSpeedLegend(data),
                         ),
                       ),
                     ],
@@ -422,222 +427,237 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
           ),
 
-          const SizedBox(height: 24),
-
-          // 통계 카드들
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: '총 사용시간',
-                  value: '${totalHours}시간 ${totalMinutes}분',
-                  icon: Icons.access_time,
-                  color: const Color(0xFF3A91FF),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: StatCard(
-                  title: '수동 제어',
-                  value: '${data.manualControlCount}회',
-                  icon: Icons.touch_app,
-                  color: const Color(0xFF4CAF50),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          Row(
-            children: [
-              Expanded(
-                child: StatCard(
-                  title: '얼굴 추적',
-                  value: '${data.faceTrackingTime.inMinutes}분',
-                  icon: Icons.face,
-                  color: const Color(0xFFFF9800),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: StatCard(
-                  title: '평균 속도',
-                  value: _getAverageSpeed(data),
-                  icon: Icons.speed,
-                  color: const Color(0xFF9C27B0),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          // 사용 시간 차트
-          UsageTimeChart(
-            data: data,
-            isWeekly: _isWeekly,
-          ),
-
-          const SizedBox(height: 24),
-
-          // 속도별 사용 비율 차트
-          SpeedUsagePieChart(data: data),
-
-          const SizedBox(height: 24),
-
-          // 상세 정보
-          if (data.speedUsageTime.isNotEmpty) _buildSpeedDetails(data),
+          const SizedBox(height: 40),
         ],
       ),
     );
   }
 
-  Widget _buildSpeedDetails(AnalyticsData data) {
-    final totalMinutes = data.speedUsageTime.values
-        .fold<Duration>(Duration.zero, (sum, duration) => sum + duration)
-        .inMinutes;
+  // --- Chart Logic ---
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '속도별 상세 사용량',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey[800],
-              fontFamily: 'Sen',
+  // [수정됨] 바 차트 빌드 로직 개선
+  Widget _buildBarChart(AnalyticsData data) {
+    // 1. 데이터에서 최대 시간 계산
+    double maxDataValue = 0;
+    if (_isWeekly) {
+      for (var day in data.dailyUsages) {
+        double hours = day.usageTime.inMinutes / 60;
+        if (hours > maxDataValue) maxDataValue = hours;
+      }
+    } else {
+      maxDataValue = data.totalUsageTime.inMinutes / 60;
+    }
+
+    // 2. 차트의 Y축 최대값 설정 (데이터가 너무 작으면 기본값 5시간)
+    double chartMaxY = maxDataValue * 1.2;
+    if (chartMaxY < 5) chartMaxY = 5;
+
+    return BarChart(
+      BarChartData(
+        maxY: chartMaxY,
+        titlesData: FlTitlesData(
+          show: true,
+          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                if (_isWeekly) {
+                  if (value.toInt() >= data.dailyUsages.length) return const SizedBox();
+                  final date = data.dailyUsages[value.toInt()].date;
+                  const weekdays = ["", "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      weekdays[date.weekday],
+                      style: const TextStyle(color: textGrey, fontSize: 12, fontFamily: 'Sen'),
+                    ),
+                  );
+                } else {
+                  return const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text("Today", style: TextStyle(color: textGrey, fontSize: 12, fontFamily: 'Sen')),
+                  );
+                }
+              },
             ),
           ),
-          const SizedBox(height: 16),
-          ...data.speedUsageTime.entries.map((entry) {
-            final speed = entry.key;
-            final duration = entry.value;
-            final percentage = totalMinutes > 0
-                ? (duration.inMinutes / totalMinutes) * 100
-                : 0.0;
-            final hours = duration.inHours;
-            final minutes = duration.inMinutes % 60;
+        ),
+        borderData: FlBorderData(show: false),
+        gridData: FlGridData(show: false),
+        barGroups: _isWeekly
+            ? data.dailyUsages.asMap().entries.map((e) {
+          return _makeBarGroup(e.key, e.value.usageTime.inMinutes / 60, chartMaxY);
+        }).toList()
+            : [ _makeBarGroup(0, data.totalUsageTime.inMinutes / 60, chartMaxY) ],
+      ),
+    );
+  }
 
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: _getSpeedColor(speed),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        '$speed',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          fontFamily: 'Sen',
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${speed}단계',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            fontFamily: 'Sen',
-                          ),
-                        ),
-                        Text(
-                          '${hours}시간 ${minutes}분 (${percentage.toStringAsFixed(1)}%)',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                            fontFamily: 'Sen',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // 진행률 바
-                  Container(
-                    width: 100,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: percentage / 100,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: _getSpeedColor(speed),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
+  // [수정됨] 개별 바 그룹 생성 (배경 바 높이 조정 포함)
+  BarChartGroupData _makeBarGroup(int x, double y, double maxY) {
+    return BarChartGroupData(
+      x: x,
+      barRods: [
+        BarChartRodData(
+          toY: y,
+          color: primaryBlue,
+          width: 16,
+          borderRadius: BorderRadius.circular(8),
+          backDrawRodData: BackgroundBarChartRodData(
+            show: true,
+            toY: maxY, // ★ 중요: 배경 막대 높이를 차트 최대 높이와 일치시킴
+            color: const Color(0xFFF0F2F5),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDonutChart(AnalyticsData data) {
+    final totalMin = data.speedUsageTime.values.fold<Duration>(Duration.zero, (s, d) => s + d).inMinutes;
+
+    if (totalMin == 0) {
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          PieChart(
+              PieChartData(
+                sections: [PieChartSectionData(value: 1, color: Colors.grey[200], radius: 15, showTitle: false)],
+                centerSpaceRadius: 40,
+              )
+          ),
+          const Text("No Data", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
         ],
+      );
+    }
+
+    return PieChart(
+      PieChartData(
+        sectionsSpace: 0,
+        centerSpaceRadius: 40,
+        sections: data.speedUsageTime.entries.map((e) {
+          final percentage = (e.value.inMinutes / totalMin) * 100;
+          return PieChartSectionData(
+            color: _getSpeedColor(e.key),
+            value: percentage,
+            radius: 20,
+            showTitle: false,
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  List<Widget> _buildSpeedLegend(AnalyticsData data) {
+    if (data.speedUsageTime.isEmpty) return [const Text("-")];
+
+    final totalMin = data.speedUsageTime.values.fold<Duration>(Duration.zero, (s, d) => s + d).inMinutes;
+    // 많이 쓴 순서대로 정렬
+    final sortedEntries = data.speedUsageTime.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return sortedEntries.take(3).map((e) { // 상위 3개만 표시
+      final percentage = (e.value.inMinutes / totalMin) * 100;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: _getSpeedColor(e.key), shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+            Text("Lv.${e.key}", style: const TextStyle(fontFamily: 'Sen', fontSize: 12, fontWeight: FontWeight.bold, color: textDark)),
+            const Spacer(),
+            Text("${percentage.toStringAsFixed(0)}%", style: const TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
+          ],
+        ),
+      );
+    }).toList();
+  }
+
+  // --- Helpers ---
+
+  Widget _buildEmptyState({bool hasUser = false, String? title, String? subtitle, String? buttonText, VoidCallback? onTap}) {
+    return Center(
+      child: FadeInSlide(
+        delay: 0,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+                hasUser ? Icons.bar_chart_rounded : Icons.person_search_rounded,
+                size: 64, color: Colors.grey[300]
+            ),
+            const SizedBox(height: 24),
+            Text(title ?? "Select a User", style: const TextStyle(fontFamily: 'Sen', fontSize: 20, fontWeight: FontWeight.w800, color: textDark)),
+            const SizedBox(height: 8),
+            Text(
+              subtitle ?? "Please select a user in the Control tab\nto view analytics.",
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontFamily: 'Sen', fontSize: 14, color: textGrey),
+            ),
+            if (buttonText != null) ...[
+              const SizedBox(height: 32),
+              TextButton(
+                onPressed: onTap,
+                child: Text(buttonText, style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.bold)),
+              )
+            ]
+          ],
+        ),
       ),
     );
   }
 
   String _getAverageSpeed(AnalyticsData data) {
-    if (data.speedUsageTime.isEmpty) return '0단계';
-
-    final totalMinutes = data.speedUsageTime.values
-        .fold<Duration>(Duration.zero, (sum, duration) => sum + duration)
-        .inMinutes;
-
-    if (totalMinutes == 0) return '0단계';
-
-    final weightedSum = data.speedUsageTime.entries.fold<double>(
-        0, (sum, entry) => sum + (entry.key * entry.value.inMinutes));
-
-    final average = weightedSum / totalMinutes;
-    return '${average.toStringAsFixed(1)}단계';
+    if (data.speedUsageTime.isEmpty) return '0';
+    final totalMin = data.speedUsageTime.values.fold<Duration>(Duration.zero, (s, d) => s + d).inMinutes;
+    if (totalMin == 0) return '0';
+    final weightedSum = data.speedUsageTime.entries.fold<double>(0, (s, e) => s + (e.key * e.value.inMinutes));
+    return (weightedSum / totalMin).toStringAsFixed(1);
   }
 
   Color _getSpeedColor(int speed) {
-    switch (speed) {
-      case 1:
-        return const Color(0xFFE3F2FD);
-      case 2:
-        return const Color(0xFFBBDEFB);
-      case 3:
-        return const Color(0xFF90CAF9);
-      case 4:
-        return const Color(0xFF64B5F6);
-      case 5:
-        return const Color(0xFF3A91FF);
-      default:
-        return Colors.grey;
-    }
+    // 부드러운 파란색 계열
+    const colors = [
+      Colors.grey,
+      Color(0xFFE3F2FD), // Lv 1 (Very Light)
+      Color(0xFF90CAF9),
+      Color(0xFF42A5F5),
+      Color(0xFF1E88E5),
+      Color(0xFF1565C0), // Lv 5 (Dark)
+    ];
+    return colors[speed.clamp(0, 5)];
+  }
+
+  Future<void> _generateTestData() async {
+    try {
+      await AnalyticsService.generateTestData(widget.selectedUserName ?? "Demo User");
+      _loadAnalytics();
+    } catch (e) { print(e); }
+  }
+}
+
+// 부드러운 진입 애니메이션
+class FadeInSlide extends StatelessWidget {
+  final Widget child;
+  final int delay;
+  const FadeInSlide({super.key, required this.child, required this.delay});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Transform.translate(
+          offset: Offset(0, 20 * (1 - value)),
+          child: Opacity(opacity: value, child: child),
+        );
+      },
+      child: child,
+    );
   }
 }

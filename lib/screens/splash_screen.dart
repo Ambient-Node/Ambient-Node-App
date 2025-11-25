@@ -19,7 +19,6 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
 
-    // ✅ 페이드 애니메이션
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -29,7 +28,6 @@ class _SplashScreenState extends State<SplashScreen>
       curve: Curves.easeInOut,
     );
 
-    // ✅ 확대(살짝 등장감)
     _scaleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -37,11 +35,9 @@ class _SplashScreenState extends State<SplashScreen>
     _scaleAnimation = Tween<double>(begin: 0.9, end: 1.0)
         .animate(CurvedAnimation(parent: _scaleController, curve: Curves.easeOutBack));
 
-    // 애니메이션 시작
     _fadeController.forward();
     _scaleController.forward();
 
-    // 2.5초 후 메인 페이지로 이동
     Future.delayed(const Duration(seconds: 3), widget.onFinish);
   }
 
@@ -64,7 +60,6 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // ✅ 앱 아이콘
                 Container(
                   width: 150,
                   height: 150,
