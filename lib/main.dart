@@ -94,32 +94,53 @@ class _MainShellState extends State<MainShell> {
   String? selectedUserImagePath;
 
   @override
+  @override
   void initState() {
     super.initState();
     ble = BleService();
 
     if (!_isTestMode) {
       ble.initialize();
+
       _bleStateSub = ble.connectionStateStream.listen((state) {
         if (!mounted) return;
-        setState(() {
-          connected = (state == BleConnectionState.connected);
-          if (!connected) {
+        if (state == BleConnectionState.disconnected) {
+          setState(() {
+            connected = false;
             speed = 0;
-            _movementMode = 'manual';
+            _movementMode = 'manual_control';
             _isNaturalWind = false;
-          }
-        });
-        if (state == BleConnectionState.error) _showSnackBar('BLE 오류가 발생했습니다.');
+          });
+          _showSnackBar('기기와의 연결이 끊어졌습니다.');
+        } else if (state == BleConnectionState.connected) {
+          setState(() {
+            connected = true;
+          });
+        } else if (state == BleConnectionState.error) {
+          _showSnackBar('BLE 오류가 발생했습니다.');
+        }
       });
 
       _bleDataSub = ble.dataStream.listen((data) {
         _bleDataStreamController.add(data);
+
+        if (data['type'] == 'SHUTDOWN') {
+          if (!mounted) return;
+          setState(() {
+            connected = false;
+            speed = 0;
+            _movementMode = 'manual_control';
+            _isNaturalWind = false;
+          });
+          _showSnackBar('게이트웨이 종료 알림을 받았습니다.');
+          ble.disconnect();
+        }
       });
     } else {
       print("🧪 [Test Mode] 실행 중");
     }
   }
+
 
   @override
   void dispose() {
