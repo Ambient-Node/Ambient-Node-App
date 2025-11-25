@@ -14,7 +14,11 @@ class ControlScreen extends StatefulWidget {
   final String deviceName;
   final VoidCallback onConnect;
   final String? selectedUserName;
-  final Function(String?, String?) onUserSelectionChanged;
+
+  // ✅ [수정 1] 콜백 함수 타입 변경: (String? id, String? name, String? imagePath)
+  // 기존: final Function(String?, String?) onUserSelectionChanged;
+  final Function(String?, String?, String?) onUserSelectionChanged;
+
   final Function(Map<String, dynamic>)? onUserDataSend;
   final Stream<Map<String, dynamic>>? dataStream;
 
@@ -39,12 +43,10 @@ class _ControlScreenState extends State<ControlScreen> {
   List<int> selectedUserIndices = [];
   StreamSubscription? _dataSubscription;
 
-  // ★ [디자인 수정 1] 세련된 컬러 팔레트로 전면 교체
-  static const Color bgLight = Color(0xFFF8FAFC);      // 아주 연한 쿨 그레이 배경
-  static const Color textMain = Color(0xFF1E293B);     // 짙은 슬레이트 (가독성 UP)
-  static const Color textSub = Color(0xFF64748B);      // 연한 슬레이트
+  static const Color bgLight = Color(0xFFF8FAFC);
+  static const Color textMain = Color(0xFF1E293B);
+  static const Color textSub = Color(0xFF64748B);
 
-  // 유저 선택 색상 (User 1: Indigo, User 2: Teal) -> 쨍한 파랑/보라 제거
   static const Color colorUser1 = Color(0xFF6366F1);
   static const Color colorUser2 = Color(0xFF14B8A6);
 
@@ -63,8 +65,6 @@ class _ControlScreenState extends State<ControlScreen> {
     _dataSubscription?.cancel();
     super.dispose();
   }
-
-  // --- 기존 로직 유지 ---
 
   List<Map<String, dynamic>> _getSelectedUsersList() {
     return selectedUserIndices.map((idx) {
@@ -225,7 +225,7 @@ class _ControlScreenState extends State<ControlScreen> {
                     ],
                   ),
                   behavior: SnackBarBehavior.floating,
-                  backgroundColor: const Color(0xFFFF5252), // 경고는 붉은색 유지
+                  backgroundColor: const Color(0xFFFF5252),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                   duration: const Duration(seconds: 2)
@@ -241,13 +241,16 @@ class _ControlScreenState extends State<ControlScreen> {
     _sendUserSelectionToBLE();
   }
 
+  // ✅ [수정 2] 선택 상태 업데이트 시 user_id도 함께 전달하도록 수정
   void _updateMainSelectionState() {
     selectedUserIndex = selectedUserIndices.isNotEmpty ? selectedUserIndices[0] : null;
     if (selectedUserIndices.isNotEmpty) {
       final firstUser = users[selectedUserIndices[0]];
-      widget.onUserSelectionChanged(firstUser.name, firstUser.imagePath);
+      // user_id, name, imagePath 순서로 전달
+      widget.onUserSelectionChanged(firstUser.userId, firstUser.name, firstUser.imagePath);
     } else {
-      widget.onUserSelectionChanged(null, null);
+      // 선택된 유저가 없을 경우 모두 null 전달
+      widget.onUserSelectionChanged(null, null, null);
     }
   }
 
@@ -269,13 +272,25 @@ class _ControlScreenState extends State<ControlScreen> {
         'action': 'user_select',
         'user_list': selectedUsers,
         'timestamp': DateTime.now().toIso8601String(),
-        'selected_users': selectedUsers,
+        // 'selected_users' 필드는 프로토콜에 따라 중복이면 제거 가능
       });
 
       if (selectedUsers.isEmpty) {
-        widget.onUserDataSend!.call({'action': 'mode_change', 'mode': 'manual', 'timestamp': DateTime.now().toIso8601String(), 'selected_users': []});
+        // [수정] 유저가 없으면 Manual로 변경 (type: motor 추가)
+        widget.onUserDataSend!.call({
+          'action': 'mode_change',
+          'type': 'motor', // ★ 추가됨
+          'mode': 'manual_control', // 'manual' 대신 명시적 값 사용 권장
+          'timestamp': DateTime.now().toIso8601String(),
+        });
       } else {
-        widget.onUserDataSend!.call({'action': 'mode_change', 'mode': 'ai', 'timestamp': DateTime.now().toIso8601String(), 'selected_users': selectedUsers});
+        // [수정] 유저가 있으면 AI Tracking으로 변경 (type: motor 추가)
+        widget.onUserDataSend!.call({
+          'action': 'mode_change',
+          'type': 'motor', // ★ 추가됨
+          'mode': 'ai_tracking', // 'ai' 대신 'ai_tracking'으로 통일
+          'timestamp': DateTime.now().toIso8601String(),
+        });
       }
     }
   }
@@ -283,7 +298,7 @@ class _ControlScreenState extends State<ControlScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: bgLight, // 배경색 적용
+      backgroundColor: bgLight,
       body: SafeArea(
         child: Column(
           children: [
@@ -311,14 +326,12 @@ class _ControlScreenState extends State<ControlScreen> {
                 ),
                 itemCount: users.length + 1,
                 itemBuilder: (context, index) {
-                  // Add Button
                   if (index == 0) return _buildAddUserCard();
 
                   final userIndex = index - 1;
                   final user = users[userIndex];
                   final isSelected = selectedUserIndices.contains(userIndex);
 
-                  // 선택 순서 (1 or 2)
                   final selectionOrder = isSelected
                       ? selectedUserIndices.indexOf(userIndex) + 1
                       : null;
@@ -327,7 +340,6 @@ class _ControlScreenState extends State<ControlScreen> {
                     user: user,
                     isSelected: isSelected,
                     selectionOrder: selectionOrder,
-                    // ★ [수정] Grid에서 Card로 색상 전달
                     activeColor: selectionOrder == 1 ? colorUser1 : colorUser2,
                     onTap: () => _selectUser(userIndex),
                     onEdit: () => _editUser(userIndex),
@@ -341,7 +353,6 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 
-  // ★ [디자인 수정 2] 헤더 (Reset 버튼 색상: 노랑 -> 회색)
   Widget _buildSelectionHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -351,7 +362,7 @@ class _ControlScreenState extends State<ControlScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "Tracking Targets", // 'AI' 제거, 심플하게
+                "Tracking Targets",
                 style: TextStyle(
                   fontFamily: 'Sen',
                   fontSize: 20,
@@ -370,7 +381,7 @@ class _ControlScreenState extends State<ControlScreen> {
                   fontSize: 14,
                   color: selectedUserIndices.isEmpty
                       ? textSub
-                      : colorUser1, // 활성 상태 시 Indigo
+                      : colorUser1,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -385,7 +396,7 @@ class _ControlScreenState extends State<ControlScreen> {
                 "Reset",
                 style: TextStyle(
                     fontFamily: 'Sen',
-                    color: textSub, // 노란색 제거 -> 회색
+                    color: textSub,
                     fontWeight: FontWeight.w600,
                     fontSize: 13
                 ),
@@ -405,7 +416,6 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 
-  // ★ [디자인 수정 3] Add Card 스타일 (점선 느낌 대신 깔끔한 보더)
   Widget _buildAddUserCard() {
     return GestureDetector(
       onTap: _addUser,
@@ -414,7 +424,7 @@ class _ControlScreenState extends State<ControlScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: const Color(0xFFE2E8F0), // 아주 연한 회색
+            color: const Color(0xFFE2E8F0),
             width: 2,
           ),
         ),
@@ -425,7 +435,7 @@ class _ControlScreenState extends State<ControlScreen> {
               width: 56,
               height: 56,
               decoration: const BoxDecoration(
-                color: Color(0xFFF1F5F9), // 연한 배경
+                color: Color(0xFFF1F5F9),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.add_rounded, color: Color(0xFF94A3B8), size: 28),
@@ -447,7 +457,6 @@ class _ControlScreenState extends State<ControlScreen> {
   }
 }
 
-// UserProfile 모델
 class UserProfile {
   final String name;
   final String? avatarUrl;
@@ -460,13 +469,11 @@ class UserProfile {
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(name: json['name'], avatarUrl: json['avatarUrl'], imagePath: json['imagePath'], userId: json['userId']);
 }
 
-// ★ [디자인 수정 4] 새로 정의된 Grid Card (오류 해결됨)
-// 기존의 중복된 클래스를 삭제하고 하나로 통합함
 class _UserGridCard extends StatelessWidget {
   final UserProfile user;
   final bool isSelected;
   final int? selectionOrder;
-  final Color activeColor; // 상위에서 색상을 받도록 수정
+  final Color activeColor;
   final VoidCallback onTap;
   final VoidCallback onEdit;
 
@@ -474,7 +481,7 @@ class _UserGridCard extends StatelessWidget {
     required this.user,
     required this.isSelected,
     this.selectionOrder,
-    required this.activeColor, // 필수 파라미터로 추가
+    required this.activeColor,
     required this.onTap,
     required this.onEdit,
   });
@@ -489,12 +496,10 @@ class _UserGridCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          // 선택 시 테두리 처리
           border: Border.all(
               color: isSelected ? activeColor : Colors.transparent,
               width: isSelected ? 2.5 : 0
           ),
-          // 그림자 효과 개선
           boxShadow: [
             if (isSelected)
               BoxShadow(
@@ -557,7 +562,6 @@ class _UserGridCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                // 상태 텍스트
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
@@ -576,8 +580,6 @@ class _UserGridCard extends StatelessWidget {
                 ),
               ],
             ),
-
-            // 편집 아이콘
             Positioned(
               top: 10,
               right: 10,
@@ -593,8 +595,6 @@ class _UserGridCard extends StatelessWidget {
                 ),
               ),
             ),
-
-            // 선택 번호 배지
             if (isSelected && selectionOrder != null)
               Positioned(
                 top: 10,

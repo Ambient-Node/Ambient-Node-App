@@ -8,9 +8,11 @@ class DashboardScreen extends StatelessWidget {
   final int speed;
   final Function(int) setSpeed;
 
-  // ★ [수정] trackingOn, setTrackingOn 삭제 -> currentMode, onModeChange 추가
-  final String currentMode;
-  final Function(String) onModeChange;
+  // ★ [수정] 상태 분리
+  final String movementMode; // 'manual', 'rotation', 'ai_tracking'
+  final bool isNaturalWind;  // true/false
+  final Function(String) onMovementModeChange;
+  final Function(bool) onNaturalWindChange;
 
   final Function(int) onTimerSet;
   final Function(String, int) onManualControl;
@@ -26,10 +28,10 @@ class DashboardScreen extends StatelessWidget {
     required this.onConnect,
     required this.speed,
     required this.setSpeed,
-    // ★ [수정] 생성자 파라미터 변경
-    required this.currentMode,
-    required this.onModeChange,
-
+    required this.movementMode,
+    required this.isNaturalWind,
+    required this.onMovementModeChange,
+    required this.onNaturalWindChange,
     required this.onTimerSet,
     required this.onManualControl,
     required this.openAnalytics,
@@ -56,9 +58,11 @@ class DashboardScreen extends StatelessWidget {
                 setSpeed: (double value) {
                   setSpeed(value.round());
                 },
-                // ★ [수정] 하위 위젯으로 전달
-                currentMode: currentMode,
-                onModeChange: onModeChange,
+                // 분리된 상태 전달
+                movementMode: movementMode,
+                isNaturalWind: isNaturalWind,
+                onMovementModeChange: onMovementModeChange,
+                onNaturalWindChange: onNaturalWindChange,
                 onTimerSet: onTimerSet,
                 onManualControl: onManualControl,
                 openAnalytics: openAnalytics,

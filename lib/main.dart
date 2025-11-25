@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-// [필수] 화면들 import
 import 'package:ambient_node/screens/splash_screen.dart';
 import 'package:ambient_node/screens/dashboard_screen.dart';
 import 'package:ambient_node/screens/analytics_screen.dart';
@@ -11,7 +10,6 @@ import 'package:ambient_node/screens/control_screen.dart';
 import 'package:ambient_node/screens/device_selection_screen.dart';
 import 'package:ambient_node/screens/settings_screen.dart';
 
-// [필수] 서비스들 import
 import 'package:ambient_node/services/analytics_service.dart';
 import 'package:ambient_node/services/ble_service.dart';
 
@@ -74,8 +72,7 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  // ★ 테스트 모드 설정
-  final bool _isTestMode = true;
+  final bool _isTestMode = false;
 
   int _index = 0;
   late final BleService ble;
@@ -87,13 +84,12 @@ class _MainShellState extends State<MainShell> {
   bool connected = false;
   String deviceName = 'Ambient';
 
-  // --- [상태 변수 관리] ---
+  // --- [상태 변수] ---
   int speed = 0;
+  String _movementMode = 'manual'; // 'manual', 'rotation', 'ai_tracking'
+  bool _isNaturalWind = false;     // true: natural_wind, false: normal_wind
 
-  // ★ 모드 관리 (ai_tracking, manual_control, rotation, natural_wind)
-  // 기본값은 manual_control로 설정
-  String currentMode = 'manual_control';
-
+  String? selectedUserId;
   String? selectedUserName;
   String? selectedUserImagePath;
 
@@ -110,7 +106,8 @@ class _MainShellState extends State<MainShell> {
           connected = (state == BleConnectionState.connected);
           if (!connected) {
             speed = 0;
-            currentMode = 'manual_control'; // 연결 끊기면 기본값 복귀
+            _movementMode = 'manual';
+            _isNaturalWind = false;
           }
         });
         if (state == BleConnectionState.error) _showSnackBar('BLE 오류가 발생했습니다.');
@@ -142,7 +139,8 @@ class _MainShellState extends State<MainShell> {
           _showSnackBar('테스트 모드: 연결됨');
         } else {
           speed = 0;
-          currentMode = 'manual_control';
+          _movementMode = 'manual';
+          _isNaturalWind = false;
           _showSnackBar('테스트 모드: 연결 해제');
         }
       });
@@ -184,9 +182,10 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // --- [BLE 전송 로직] ---
-
   void _sendData(Map<String, dynamic> data) {
+    if (selectedUserId != null) {
+      data['user_id'] = selectedUserId;
+    }
     if (_isTestMode) {
       print("📤 [Mock Send] ${jsonEncode(data)}");
       return;
@@ -194,65 +193,85 @@ class _MainShellState extends State<MainShell> {
     if (connected) ble.sendJson(data);
   }
 
-  // 1. 모드 변경 (Mode Change)
-  // mode: ai_tracking, manual_control, rotation, natural_wind
-  void _setMode(String mode) {
-    setState(() => currentMode = mode);
+  // ====================================================
+  // ★ [수정 1] 모터(Movement) 모드 변경 프로토콜 업데이트
+  // Type: motor
+  // Modes: ai_tracking, rotation, manual_control
+  // ====================================================
+  void _setMovementMode(String mode) {
+    setState(() => _movementMode = mode);
 
-    // 모드 변경 시 별도의 데이터 없이 모드 이름만 전송 (설계 의도 반영)
+    String finalMode = mode;
+    if (mode == 'manual') finalMode = 'manual_control'; // 내부 코드와 프로토콜 매핑
+
     _sendData({
       'action': 'mode_change',
-      'mode': mode,
+      'type': 'motor', // ★ 핵심: 모터 제어 타입 명시
+      'mode': finalMode,
       'timestamp': DateTime.now().toIso8601String()
     });
 
     if(mode == 'ai_tracking') AnalyticsService.onFaceTrackingStart();
   }
 
-  // 2. 속도 변경 (Speed Change)
-  // 속도를 수동으로 조절하면 'manual_control'로 강제 복귀
+  // ====================================================
+  // ★ [수정 2] 바람(Wind) 모드 변경 프로토콜 업데이트
+  // Type: wind
+  // Modes: natural_wind, normal_wind
+  // ====================================================
+  void _setNaturalWind(bool active) {
+    setState(() => _isNaturalWind = active);
+
+    _sendData({
+      'action': 'mode_change',
+      'type': 'wind', // ★ 핵심: 바람 제어 타입 명시
+      'mode': active ? 'natural_wind' : 'normal_wind',
+      'timestamp': DateTime.now().toIso8601String()
+    });
+  }
+
+  // 속도 변경
   void _setSpeed(int newSpeed) {
     int target = newSpeed.clamp(0, 5);
     setState(() {
       speed = target;
-      // 자연풍이나 회전 모드 등에서 속도를 건드리면 -> 수동 모드로 간주
-      if (currentMode != 'manual_control' && currentMode != 'ai_tracking') {
-        currentMode = 'manual_control';
+      // 속도를 수동으로 바꾸면 자연풍 모드는 꺼진 것으로 간주 (UI 처리)
+      // 하지만 프로토콜상으로는 'normal_wind'로 명시적으로 보내주는 것이 안전할 수 있음.
+      if (_isNaturalWind) {
+        _isNaturalWind = false;
+        // _setNaturalWind(false)를 호출하면 중복 전송이 되므로,
+        // 여기서는 그냥 speed만 보내거나, 필요시 normal_wind 패킷을 같이 보낼 수 있음.
+        // 현재 로직: 스피드 변경만 보냄.
       }
     });
 
     _sendData({
       'action': 'speed_change',
       'speed': target,
-      // 속도 조절 시에는 명시적으로 manual 모드로 돌아갔음을 알려주는게 안전할 수 있음
-      // 펌웨어 로직에 따라 다르지만, 여기서는 별도 mode_change를 보내지 않고
-      // 앱 UI 상태만 manual로 바꿉니다. (펌웨어가 speed_change 받으면 알아서 manual로 인식한다고 가정)
       'timestamp': DateTime.now().toIso8601String()
     });
 
     AnalyticsService.onSpeedChanged(target);
   }
 
-  // 3. 타이머 설정 (Timer)
   void _setTimer(int seconds) {
     _sendData({
       'action': 'timer',
-      'duration_sec': seconds, // 초 단위 전송
+      'duration_sec': seconds,
       'timestamp': DateTime.now().toIso8601String()
     });
     _showSnackBar(seconds > 0 ? '${seconds ~/ 60}분 후 종료됩니다.' : '타이머가 취소되었습니다.');
   }
 
-  // 4. 수동 조작 (D-Pad Control)
   void _sendManualCommand(String direction, int toggleOn) {
-    // 수동 조작 시도가 있으면 모드를 manual로 변경해야 함
-    if (currentMode != 'manual_control') {
-      _setMode('manual_control');
+    // 수동 조작 시 모터 모드는 manual로 변경
+    if (_movementMode != 'manual') {
+      _setMovementMode('manual'); // 이 함수 안에서 type: motor 전송됨
     }
 
     String d = direction.isNotEmpty ? direction[0].toLowerCase() : direction;
     _sendData({
-      'action': 'angle_change',
+      'action': 'direction_change',
       'direction': d,
       'toggleOn': toggleOn,
       'timestamp': DateTime.now().toIso8601String(),
@@ -260,7 +279,6 @@ class _MainShellState extends State<MainShell> {
 
     if (toggleOn == 1) AnalyticsService.onManualControl(d, speed);
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -273,11 +291,11 @@ class _MainShellState extends State<MainShell> {
         speed: speed,
         setSpeed: _setSpeed,
 
-        // ★ [수정] trackingOn 삭제 -> currentMode와 onModeChange 연결
-        currentMode: currentMode,
-        onModeChange: _setMode,
+        movementMode: _movementMode,
+        isNaturalWind: _isNaturalWind,
+        onMovementModeChange: _setMovementMode,
+        onNaturalWindChange: _setNaturalWind,
 
-        // 타이머 및 수동 제어 연결
         onTimerSet: _setTimer,
         onManualControl: _sendManualCommand,
 
@@ -294,8 +312,9 @@ class _MainShellState extends State<MainShell> {
         onConnect: handleConnect,
         dataStream: _bleDataStreamController.stream,
         selectedUserName: selectedUserName,
-        onUserSelectionChanged: (name, img) {
+        onUserSelectionChanged: (id, name, img) {
           setState(() {
+            selectedUserId = id;
             selectedUserName = name;
             selectedUserImagePath = img;
           });
@@ -351,7 +370,7 @@ class _MainShellState extends State<MainShell> {
 
   Widget _buildNavItem(int index, IconData icon, String label) {
     final isSelected = _index == index;
-    final activeColor = const Color(0xFF6366F1); // Indigo
+    final activeColor = const Color(0xFF6366F1);
     final inactiveColor = const Color(0xFF949BA5);
 
     return GestureDetector(
