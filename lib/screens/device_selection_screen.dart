@@ -31,8 +31,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
   final Map<String, String> _connectionStates = {};
 
   bool _isScanning = false;
-  // _hasConnectedDevice는 UI 상태용이며, 실제 연결 상태는 bleService를 신뢰합니다.
-
   StreamSubscription? _connectionStateSubscription;
   StreamSubscription? _scanSubscription;
 
@@ -52,12 +50,10 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
 
   @override
   void dispose() {
-    // 1. 애니메이션/구독 먼저 해제
     _radarController.dispose();
     _scanSubscription?.cancel();
     _connectionStateSubscription?.cancel();
 
-    // 2. 스캔 중지
     try {
       widget.bleService.stopScan();
     } catch (e) {
@@ -68,7 +64,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
 
   void _setupListeners() {
     _connectionStateSubscription = widget.bleService.connectionStateStream.listen((state) {
-      // [중요] 비동기 콜백에서 UI 갱신 전 반드시 mounted 체크
       if (!mounted) return;
 
       setState(() {
@@ -76,7 +71,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
         widget.onConnectionChanged(isConnected);
 
         if (state == BleConnectionState.connected) {
-          // 이미 닫힌 화면이거나 이동 중이면 무시
           if (!mounted) return;
 
           ScaffoldMessenger.of(context).clearSnackBars();
@@ -90,8 +84,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
           }
         }
         else if (state == BleConnectionState.disconnected) {
-          // 연결 끊김 상태 업데이트
-          // (Status 22로 끊길 때 여기서 UI 갱신 시도하다가 죽는 것 방지)
         }
         else if (state == BleConnectionState.error) {
           if (!mounted) return;
@@ -139,21 +131,14 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
   Future<void> _connectToDevice(BluetoothDevice device) async {
     final deviceId = device.remoteId.toString();
 
-    // 연결 시도 전 스캔 확실히 중지
     _stopScanning();
 
     if (!mounted) return;
-    setState(() => _connectionStates[deviceId] = '연결 및 페어링 중...');
+    setState(() => _connectionStates[deviceId] = '연결 중...');
 
     try {
-      // [수정 포인트] BleService.connect 안에서 딜레이를 주는 것이 가장 좋으나,
-      // 서비스 코드를 수정할 수 없다면 여기서라도 딜레이를 줄 수는 없습니다.
-      // (connect 함수가 끝날 때는 이미 연결이 완료된 후이기 때문)
-      // 따라서 여기서는 에러 핸들링만 강화합니다.
-
       await widget.bleService.connect(device);
 
-      // connect가 에러 없이 반환되면 연결 성공으로 간주
       if (mounted) {
         setState(() {
           _connectionStates[deviceId] = '연결 완료';
@@ -193,15 +178,13 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
     } catch (e) {
       print('해제 실패: $e');
       if (mounted) {
-        setState(() => _connectionStates.remove(deviceId)); // 실패해도 UI는 초기화
+        setState(() => _connectionStates.remove(deviceId));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // ... UI 코드는 기존과 동일 ...
-    // (위쪽 코드와 똑같이 유지하면 됩니다)
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(

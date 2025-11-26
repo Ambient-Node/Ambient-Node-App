@@ -8,7 +8,6 @@ class DashboardScreen extends StatelessWidget {
   final int speed;
   final Function(int) setSpeed;
 
-  // ★ [수정] 상태 분리
   final String movementMode; // 'manual', 'rotation', 'ai_tracking'
   final bool isNaturalWind;  // true/false
   final Function(String) onMovementModeChange;
@@ -58,7 +57,6 @@ class DashboardScreen extends StatelessWidget {
                 setSpeed: (double value) {
                   setSpeed(value.round());
                 },
-                // 분리된 상태 전달
                 movementMode: movementMode,
                 isNaturalWind: isNaturalWind,
                 onMovementModeChange: onMovementModeChange,

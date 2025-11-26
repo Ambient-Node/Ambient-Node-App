@@ -15,8 +15,6 @@ class ControlScreen extends StatefulWidget {
   final VoidCallback onConnect;
   final String? selectedUserName;
 
-  // ✅ [수정 1] 콜백 함수 타입 변경: (String? id, String? name, String? imagePath)
-  // 기존: final Function(String?, String?) onUserSelectionChanged;
   final Function(String?, String?, String?) onUserSelectionChanged;
 
   final Function(Map<String, dynamic>)? onUserDataSend;
@@ -241,15 +239,12 @@ class _ControlScreenState extends State<ControlScreen> {
     _sendUserSelectionToBLE();
   }
 
-  // ✅ [수정 2] 선택 상태 업데이트 시 user_id도 함께 전달하도록 수정
   void _updateMainSelectionState() {
     selectedUserIndex = selectedUserIndices.isNotEmpty ? selectedUserIndices[0] : null;
     if (selectedUserIndices.isNotEmpty) {
       final firstUser = users[selectedUserIndices[0]];
-      // user_id, name, imagePath 순서로 전달
       widget.onUserSelectionChanged(firstUser.userId, firstUser.name, firstUser.imagePath);
     } else {
-      // 선택된 유저가 없을 경우 모두 null 전달
       widget.onUserSelectionChanged(null, null, null);
     }
   }

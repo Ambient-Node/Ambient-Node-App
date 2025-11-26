@@ -5,7 +5,6 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// 프로젝트 사양에 맞춘 BLE 상수 정의
 class BleConstants {
   static const String SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
   static const String WRITE_CHAR_UUID = '12345678-1234-5678-1234-56789abcdef1';
@@ -14,7 +13,6 @@ class BleConstants {
   static const int MAX_CHUNK_SIZE = 480;
 }
 
-/// BLE 연결 상태 열거형
 enum BleConnectionState {
   disconnected,
   scanning,
@@ -29,31 +27,26 @@ class BleService {
   factory BleService() => _instance;
   BleService._internal();
 
-  // 내부 상태 변수
   BluetoothDevice? _connectedDevice;
   BluetoothCharacteristic? _writeCharacteristic;
   BluetoothCharacteristic? _notifyCharacteristic;
 
-  // 스트림 컨트롤러
   final _connectionStateController = BehaviorSubject<BleConnectionState>.seeded(
       BleConnectionState.disconnected
   );
   final _dataStreamController = StreamController<Map<String, dynamic>>.broadcast();
   final _logController = StreamController<String>.broadcast();
 
-  // 외부 접근 Getter
   Stream<BleConnectionState> get connectionStateStream => _connectionStateController.stream;
   Stream<Map<String, dynamic>> get dataStream => _dataStreamController.stream;
   Stream<String> get logStream => _logController.stream;
   BleConnectionState get currentState => _connectionStateController.value;
 
-  // ★★★ 핵심: 기기 연결 상태를 실시간 감지하는 구독 객체 ★★★
   StreamSubscription? _deviceStateSubscription;
 
   final List<String> _chunkBuffer = [];
   Timer? _reconnectTimer;
 
-  /// 초기화 및 권한 요청
   Future<bool> initialize() async {
     _log('BLE 서비스 초기화 중...');
     FlutterBluePlus.setLogLevel(LogLevel.error, color: false);
@@ -62,7 +55,6 @@ class BleService {
       await FlutterBluePlus.turnOn();
     }
 
-    // 블루투스 어댑터 상태 감지 (어댑터 꺼짐 시)
     FlutterBluePlus.adapterState.listen((state) {
       if (state == BluetoothAdapterState.off) {
         _log('⚠️ 블루투스 어댑터가 꺼졌습니다.');
@@ -73,7 +65,6 @@ class BleService {
     return await _requestPermissions();
   }
 
-  /// 스캔 시작
   Stream<List<ScanResult>> startScan() {
     if (_connectionStateController.value == BleConnectionState.connected) {
       _log('이미 연결되어 있어 스캔을 건너뜁니다.');
@@ -99,7 +90,6 @@ class BleService {
     });
   }
 
-  /// 스캔 중지
   void stopScan() {
     FlutterBluePlus.stopScan();
     if (_connectionStateController.value == BleConnectionState.scanning) {
@@ -107,9 +97,7 @@ class BleService {
     }
   }
 
-  /// 디바이스 연결
   Future<void> connect(BluetoothDevice device) async {
-    // 이미 연결 중이거나 연결된 상태면 무시
     if (_connectionStateController.value == BleConnectionState.connecting ||
         _connectionStateController.value == BleConnectionState.connected) {
       return;
@@ -121,41 +109,33 @@ class BleService {
     try {
       _log('${device.platformName}에 연결 시도 중...');
 
-      // 물리적 연결 시도
       await device.connect(
         timeout: const Duration(seconds: 15),
         autoConnect: false,
       );
 
-      // 안드로이드 Status 22 방지 딜레이
       if (Platform.isAndroid) {
         await Future.delayed(const Duration(seconds: 2));
       }
 
       _connectedDevice = device;
 
-      // ★★★ 핵심 1: 기기 연결 상태 변경을 실시간 감지 ★★★
-      // 게이트웨이가 꺼지면 OS가 감지해서 이 스트림으로 알려줌
       _deviceStateSubscription?.cancel();
       _deviceStateSubscription = device.connectionState.listen((state) {
         _log('📡 기기 연결 상태 변경: $state');
 
         if (state == BluetoothConnectionState.connected) {
-          // 연결됨 (이미 connected 상태일 수 있으므로 중복 방지)
           if (currentState != BleConnectionState.connected) {
             _updateState(BleConnectionState.connected);
           }
         } else if (state == BluetoothConnectionState.disconnected) {
-          // ★ 연결 끊김 감지 → 즉시 UI 상태 업데이트 ★
           _log('⚠️ 기기와의 연결이 끊어졌습니다.');
           _handleDisconnection();
         }
       });
 
-      // 서비스 탐색 및 Characteristic 설정
       await _discoverServices(device);
 
-      // 최종 연결 성공 상태 업데이트
       _updateState(BleConnectionState.connected);
       _log('✅ 연결 성공.');
 
@@ -174,7 +154,6 @@ class BleService {
     }
   }
 
-  /// 연결 해제
   Future<void> disconnect() async {
     _updateState(BleConnectionState.disconnecting);
     _reconnectTimer?.cancel();
@@ -188,9 +167,7 @@ class BleService {
     }
   }
 
-  /// JSON 데이터 전송
   Future<void> sendJson(Map<String, dynamic> data) async {
-    // 엄격한 연결 상태 체크
     if (currentState != BleConnectionState.connected) {
       _log('⚠️ 전송 차단됨: BLE가 연결된 상태가 아닙니다. (현재 상태: $currentState)');
       return;
@@ -215,7 +192,6 @@ class BleService {
     } catch (e) {
       _log('❌ 전송 오류: $e');
 
-      // 연결 끊김 관련 에러 발생 시 상태 업데이트
       if (e.toString().toLowerCase().contains('disconnected') ||
           e.toString().toLowerCase().contains('not connected')) {
         _handleDisconnection();
@@ -224,8 +200,6 @@ class BleService {
     }
   }
 
-  // ================= 내부 헬퍼 메서드 =================
-
   /// 상태 업데이트 (중복 이벤트 방지)
   void _updateState(BleConnectionState state) {
     if (_connectionStateController.value != state) {
@@ -233,7 +207,6 @@ class BleService {
     }
   }
 
-  /// ★★★ 핵심 2: 연결 해제 처리 (리소스 정리) ★★★
   void _handleDisconnection() {
     _deviceStateSubscription?.cancel(); // 구독 취소
     _connectedDevice = null;
@@ -246,7 +219,6 @@ class BleService {
     _log('🔌 연결이 해제되었습니다.');
   }
 
-  /// 서비스 및 Characteristic 발견
   Future<void> _discoverServices(BluetoothDevice device) async {
     _log('🔍 서비스 탐색 중...');
     final services = await device.discoverServices();
@@ -277,7 +249,6 @@ class BleService {
     }
   }
 
-  /// 데이터 수신 처리
   void _onDataReceived(List<int> bytes) {
     try {
       final str = utf8.decode(bytes);
@@ -297,7 +268,6 @@ class BleService {
     }
   }
 
-  /// 청크 데이터 조립
   void _handleChunk(String str) {
     final headerEnd = str.indexOf('>');
     final header = str.substring(7, headerEnd);
@@ -318,7 +288,6 @@ class BleService {
     _chunkBuffer.add(str.substring(headerEnd + 1));
   }
 
-  /// 대용량 데이터 분할 전송
   Future<void> _sendInChunks(BluetoothCharacteristic char, String jsonStr) async {
     final total = (jsonStr.length / BleConstants.MAX_CHUNK_SIZE).ceil();
 
@@ -339,7 +308,6 @@ class BleService {
     await char.write(utf8.encode('<CHUNK:END>'), withoutResponse: true);
   }
 
-  /// 권한 요청
   Future<bool> _requestPermissions() async {
     if (Platform.isAndroid) {
       final Map<Permission, PermissionStatus> statuses = await [
@@ -353,7 +321,6 @@ class BleService {
     return true;
   }
 
-  /// 리소스 정리 (dispose)
   void dispose() {
     _deviceStateSubscription?.cancel();
     _reconnectTimer?.cancel();

@@ -1,7 +1,5 @@
-// lib/widgets/remote_control_dpad.dart
 import 'package:flutter/material.dart';
 
-// UI 색상 정의
 class RemoteColors {
   static const kColorSlate200 = Color(0xFFE2E8F0);
   static const kColorSlate500 = Color(0xFF64748B);
@@ -44,7 +42,7 @@ class RemoteControlDpad extends StatelessWidget {
     final double innerCircleSize = size * 0.55;
     final double dpadButtonSize = 56.0; // 60 -> 56
     final double centerButtonSize = 72.0; // 80 -> 72
-    final double edgeOffset = 5.0; // 20 -> 5 (버튼을 더 바깥으로)
+    final double edgeOffset = 5.0; // 20 -> 5
 
     return Container(
       width: size,
@@ -68,7 +66,6 @@ class RemoteControlDpad extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // 외곽 데코레이션 라인
           Container(
             width: size - 20,
             height: size - 20,
@@ -79,7 +76,7 @@ class RemoteControlDpad extends StatelessWidget {
               ),
             ),
           ),
-          // 내부 배경 원
+
           Container(
             width: innerCircleSize,
             height: innerCircleSize,
@@ -89,7 +86,6 @@ class RemoteControlDpad extends StatelessWidget {
             ),
           ),
 
-          // 상단 버튼 (위치를 더 위로 올림)
           Positioned(
             top: edgeOffset,
             child: _buildGestureButton(
@@ -99,7 +95,6 @@ class RemoteControlDpad extends StatelessWidget {
               size: dpadButtonSize,
             ),
           ),
-          // 하단 버튼 (위치를 더 아래로 내림)
           Positioned(
             bottom: edgeOffset,
             child: _buildGestureButton(
@@ -109,7 +104,6 @@ class RemoteControlDpad extends StatelessWidget {
               size: dpadButtonSize,
             ),
           ),
-          // 좌측 버튼 (위치를 더 왼쪽으로)
           Positioned(
             left: edgeOffset,
             child: _buildGestureButton(
@@ -119,7 +113,6 @@ class RemoteControlDpad extends StatelessWidget {
               size: dpadButtonSize,
             ),
           ),
-          // 우측 버튼 (위치를 더 오른쪽으로)
           Positioned(
             right: edgeOffset,
             child: _buildGestureButton(
@@ -130,7 +123,6 @@ class RemoteControlDpad extends StatelessWidget {
             ),
           ),
 
-          // 중앙 버튼 (크기를 줄여서 주변 버튼과 간격 확보)
           GestureDetector(
             onTapDown: (_) => onCenter(),
             onTapUp: (_) => onCenterEnd(),
@@ -154,7 +146,7 @@ class RemoteControlDpad extends StatelessWidget {
               child: const Icon(
                 Icons.settings_backup_restore,
                 color: Colors.white,
-                size: 30, // 아이콘 크기도 살짝 조정
+                size: 30,
               ),
             ),
           ),

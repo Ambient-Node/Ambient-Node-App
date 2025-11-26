@@ -70,7 +70,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   void didUpdateWidget(FanDashboardWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // 모터 모드 변경 시: AI 트래킹이나 자동 회전이 켜지면 리모컨 패널 닫기
+    // 모터 모드 변경 시 AI 트래킹이나 자동 회전이 켜지면 리모컨 패널 닫기
     if (widget.movementMode != oldWidget.movementMode) {
       if (widget.movementMode != 'manual') {
         _isRemoteActive = false;
@@ -108,13 +108,13 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
       return;
     }
 
-    // 자연풍이거나 속도가 0보다 크면 팬 애니메이션 동작
+    // 자연풍이거나 속도가 0보다 클 때 팬 애니메이션 동작
     if (widget.speed > 0 || widget.isNaturalWind) {
       int durationMs;
       if (widget.isNaturalWind) {
-        durationMs = 2400; // 자연풍: 천천히
+        durationMs = 2400;
       } else {
-        durationMs = 2400 ~/ widget.speed; // 일반: 속도 비례
+        durationMs = 2400 ~/ widget.speed;
       }
       _controller.duration = Duration(milliseconds: durationMs);
       _controller.repeat();
@@ -177,7 +177,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   Widget build(BuildContext context) {
     final currentSpeed = widget.speed;
 
-    // 속도 조절 가능 여부: 연결되어 있고 && 자연풍이 아닐 때
     final bool canControlSpeed = widget.connected && !widget.isNaturalWind;
     final Color controlColor = canControlSpeed ? _fanBlue : Colors.grey.shade300;
 
@@ -217,7 +216,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
                       ),
                     ),
 
-                  // 2. 메인 팬 & 속도 제어 패널
                   Container(
                     width: double.infinity,
                     constraints: const BoxConstraints(maxWidth: 400),
@@ -297,7 +295,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
 
                   const SizedBox(height: 16),
 
-                  // 3. 기능 버튼 패널
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
@@ -331,13 +328,11 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
     );
   }
 
-  // ★ 기능 버튼들: 모터 제어(트래킹, 회전)와 풍속 제어(자연풍)의 독립적 로직
   Widget _buildFunctionButtonsRow() {
     return Row(
       key: const ValueKey('buttons'),
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
-        // 1. 타이머
         _buildFunctionButton(
           icon: Icons.timer_outlined,
           label: "타이머",
@@ -345,7 +340,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
           onTap: _handleTimerSetting,
         ),
 
-        // 2. AI 트래킹 (모터 제어) -> 회전 모드와 배타적
         _buildFunctionButton(
           icon: Icons.face,
           label: "AI 트래킹",
@@ -356,7 +350,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
           },
         ),
 
-        // 3. 회전 (모터 제어) -> AI 트래킹과 배타적
         _buildFunctionButton(
           icon: Icons.sync,
           label: "회전",
@@ -367,7 +360,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
           },
         ),
 
-        // 4. 자연풍 (풍속 제어) -> 모터 모드와 독립적 (같이 켜질 수 있음)
         _buildFunctionButton(
           icon: Icons.grass,
           label: "자연풍",
@@ -377,7 +369,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
           },
         ),
 
-        // 5. 리모컨 (수동 조작) -> 모터 모드를 manual로 변경
         _buildFunctionButton(
           icon: Icons.gamepad_outlined,
           label: "리모컨",

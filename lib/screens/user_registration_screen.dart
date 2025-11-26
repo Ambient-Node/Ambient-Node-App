@@ -23,7 +23,6 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   final ImagePicker _picker = ImagePicker();
   XFile? _imageFile;
 
-  // Colors - App Theme
   static const Color bgWhite = Colors.white;
   static const Color bgGrey = Color(0xFFF6F7F8);
   static const Color primaryBlue = Color(0xFF3A91FF);
@@ -47,8 +46,6 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     _nameController.dispose();
     super.dispose();
   }
-
-  // --- Logic (동일 유지) ---
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -158,7 +155,6 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   void _handleDelete() {
     if (!widget.isEditMode) return;
 
-    // 모던한 다이얼로그
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -200,7 +196,6 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: bgWhite,
-      // 앱바를 없애고 커스텀 헤더를 사용하여 더 깔끔하게
       appBar: AppBar(
         backgroundColor: bgWhite,
         elevation: 0,
@@ -261,7 +256,6 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                         ),
                       ),
 
-                      // 카메라 아이콘 배지
                       Positioned(
                         bottom: 4,
                         right: 4,
@@ -290,7 +284,6 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
               const SizedBox(height: 40),
 
-              // 2. Name Input Field
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -336,9 +329,6 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
               const SizedBox(height: 50),
 
-              // 3. Action Buttons
-
-              // 저장/등록 버튼 (메인 버튼)
               SizedBox(
                 width: double.infinity,
                 height: 56,
@@ -366,7 +356,6 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
               const SizedBox(height: 16),
 
-              // 삭제 버튼 (수정 모드일 때만 표시, 보조 버튼)
               if (widget.isEditMode)
                 TextButton(
                   onPressed: _handleDelete,

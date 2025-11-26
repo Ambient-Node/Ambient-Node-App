@@ -84,7 +84,6 @@ class _MainShellState extends State<MainShell> {
   bool connected = false;
   String deviceName = 'Ambient';
 
-  // --- [상태 변수] ---
   int speed = 0;
   String _movementMode = 'manual'; // 'manual', 'rotation', 'ai_tracking'
   bool _isNaturalWind = false;     // true: natural_wind, false: normal_wind
@@ -214,11 +213,6 @@ class _MainShellState extends State<MainShell> {
     if (connected) ble.sendJson(data);
   }
 
-  // ====================================================
-  // ★ [수정 1] 모터(Movement) 모드 변경 프로토콜 업데이트
-  // Type: motor
-  // Modes: ai_tracking, rotation, manual_control
-  // ====================================================
   void _setMovementMode(String mode) {
     setState(() => _movementMode = mode);
 
@@ -227,7 +221,7 @@ class _MainShellState extends State<MainShell> {
 
     _sendData({
       'action': 'mode_change',
-      'type': 'motor', // ★ 핵심: 모터 제어 타입 명시
+      'type': 'motor',
       'mode': finalMode,
       'timestamp': DateTime.now().toIso8601String()
     });
@@ -235,34 +229,23 @@ class _MainShellState extends State<MainShell> {
     if(mode == 'ai_tracking') AnalyticsService.onFaceTrackingStart();
   }
 
-  // ====================================================
-  // ★ [수정 2] 바람(Wind) 모드 변경 프로토콜 업데이트
-  // Type: wind
-  // Modes: natural_wind, normal_wind
-  // ====================================================
   void _setNaturalWind(bool active) {
     setState(() => _isNaturalWind = active);
 
     _sendData({
       'action': 'mode_change',
-      'type': 'wind', // ★ 핵심: 바람 제어 타입 명시
+      'type': 'wind',
       'mode': active ? 'natural_wind' : 'normal_wind',
       'timestamp': DateTime.now().toIso8601String()
     });
   }
 
-  // 속도 변경
   void _setSpeed(int newSpeed) {
     int target = newSpeed.clamp(0, 5);
     setState(() {
       speed = target;
-      // 속도를 수동으로 바꾸면 자연풍 모드는 꺼진 것으로 간주 (UI 처리)
-      // 하지만 프로토콜상으로는 'normal_wind'로 명시적으로 보내주는 것이 안전할 수 있음.
       if (_isNaturalWind) {
         _isNaturalWind = false;
-        // _setNaturalWind(false)를 호출하면 중복 전송이 되므로,
-        // 여기서는 그냥 speed만 보내거나, 필요시 normal_wind 패킷을 같이 보낼 수 있음.
-        // 현재 로직: 스피드 변경만 보냄.
       }
     });
 
@@ -285,9 +268,8 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _sendManualCommand(String direction, int toggleOn) {
-    // 수동 조작 시 모터 모드는 manual로 변경
     if (_movementMode != 'manual') {
-      _setMovementMode('manual'); // 이 함수 안에서 type: motor 전송됨
+      _setMovementMode('manual');
     }
 
     String d = direction.isNotEmpty ? direction[0].toLowerCase() : direction;
@@ -304,7 +286,6 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final screens = [
-      // 0: 대시보드
       DashboardScreen(
         connected: connected,
         onConnect: handleConnect,
@@ -326,7 +307,6 @@ class _MainShellState extends State<MainShell> {
         selectedUserImagePath: selectedUserImagePath,
       ),
 
-      // 1: 유저 관리
       ControlScreen(
         connected: connected,
         deviceName: deviceName,
@@ -344,10 +324,8 @@ class _MainShellState extends State<MainShell> {
         onUserDataSend: _sendData,
       ),
 
-      // 2: 분석
       AnalyticsScreen(selectedUserName: selectedUserName),
 
-      // 3: 설정
       SettingsScreen(
         connected: connected,
         sendJson: _sendData,

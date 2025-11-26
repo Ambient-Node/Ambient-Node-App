@@ -20,7 +20,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   AnalyticsData? _analyticsData;
   bool _isLoading = true;
 
-  // 디자인 상수
   static const Color primaryBlue = Color(0xFF3A91FF);
   static const Color textDark = Color(0xFF2D3142);
   static const Color textGrey = Color(0xFF9098B1);
@@ -72,7 +71,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // 1. 헤더 (타이틀 + 토글)
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
               child: Row(
@@ -92,7 +90,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
             ),
 
-            // 2. 메인 컨텐츠
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: primaryBlue))
@@ -107,8 +104,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
     );
   }
-
-  // --- Widgets ---
 
   Widget _buildSegmentedControl() {
     return Container(
@@ -159,7 +154,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  // 예쁜 벤토 카드 위젯
   Widget _buildBentoCard({
     required String title,
     required String value,
@@ -215,9 +209,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  // ... 기존 imports 및 상단 클래스 코드 유지 ...
-
-  // [수정됨] 대시보드 컨텐츠 빌더
   Widget _buildDashboardContent() {
     final data = _analyticsData!;
     final totalHours = data.totalUsageTime.inHours;
@@ -309,7 +300,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
           const SizedBox(height: 24),
 
-          // B. 그리드 스탯 (Bento Style) - 기존과 동일
           FadeInSlide(
             delay: 100,
             child: Row(
@@ -364,7 +354,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
           const SizedBox(height: 32),
 
-          // C. 차트 섹션 (Clean UI)
           FadeInSlide(
             delay: 300,
             child: Column(
@@ -373,7 +362,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const Text("Usage History", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
                 const SizedBox(height: 16),
 
-                // [수정됨] 컨테이너에 clipBehavior 추가하여 그래프 넘침 방지
                 Container(
                   height: 220,
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 10),
@@ -382,7 +370,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
                   ),
-                  clipBehavior: Clip.hardEdge, // ★ 중요: 그래프가 튀어나가지 않도록 자름
+                  clipBehavior: Clip.hardEdge,
                   child: _buildBarChart(data),
                 ),
               ],
@@ -391,7 +379,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
           const SizedBox(height: 32),
 
-          // D. 파이 차트 (Donut Style) - 기존과 동일
           FadeInSlide(
             delay: 400,
             child: Column(
@@ -433,11 +420,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  // --- Chart Logic ---
-
-  // [수정됨] 바 차트 빌드 로직 개선
   Widget _buildBarChart(AnalyticsData data) {
-    // 1. 데이터에서 최대 시간 계산
     double maxDataValue = 0;
     if (_isWeekly) {
       for (var day in data.dailyUsages) {
@@ -448,7 +431,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       maxDataValue = data.totalUsageTime.inMinutes / 60;
     }
 
-    // 2. 차트의 Y축 최대값 설정 (데이터가 너무 작으면 기본값 5시간)
     double chartMaxY = maxDataValue * 1.2;
     if (chartMaxY < 5) chartMaxY = 5;
 
@@ -496,7 +478,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  // [수정됨] 개별 바 그룹 생성 (배경 바 높이 조정 포함)
   BarChartGroupData _makeBarGroup(int x, double y, double maxY) {
     return BarChartGroupData(
       x: x,
@@ -508,7 +489,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           borderRadius: BorderRadius.circular(8),
           backDrawRodData: BackgroundBarChartRodData(
             show: true,
-            toY: maxY, // ★ 중요: 배경 막대 높이를 차트 최대 높이와 일치시킴
+            toY: maxY,
             color: const Color(0xFFF0F2F5),
           ),
         ),
@@ -555,11 +536,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (data.speedUsageTime.isEmpty) return [const Text("-")];
 
     final totalMin = data.speedUsageTime.values.fold<Duration>(Duration.zero, (s, d) => s + d).inMinutes;
-    // 많이 쓴 순서대로 정렬
     final sortedEntries = data.speedUsageTime.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    return sortedEntries.take(3).map((e) { // 상위 3개만 표시
+    return sortedEntries.take(3).map((e) {
       final percentage = (e.value.inMinutes / totalMin) * 100;
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
@@ -575,8 +555,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       );
     }).toList();
   }
-
-  // --- Helpers ---
 
   Widget _buildEmptyState({bool hasUser = false, String? title, String? subtitle, String? buttonText, VoidCallback? onTap}) {
     return Center(
@@ -619,14 +597,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Color _getSpeedColor(int speed) {
-    // 부드러운 파란색 계열
     const colors = [
       Colors.grey,
-      Color(0xFFE3F2FD), // Lv 1 (Very Light)
+      Color(0xFFE3F2FD),
       Color(0xFF90CAF9),
       Color(0xFF42A5F5),
       Color(0xFF1E88E5),
-      Color(0xFF1565C0), // Lv 5 (Dark)
+      Color(0xFF1565C0),
     ];
     return colors[speed.clamp(0, 5)];
   }
@@ -639,7 +616,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 }
 
-// 부드러운 진입 애니메이션
 class FadeInSlide extends StatelessWidget {
   final Widget child;
   final int delay;

@@ -49,7 +49,6 @@ class _TimerSettingScreenState extends State<TimerSettingScreen> {
           ),
           const SizedBox(height: 40),
 
-          // 시간 선택기 (Cupertino 스타일이 깔끔함)
           Expanded(
             child: CupertinoTimerPicker(
               mode: CupertinoTimerPickerMode.hm,
