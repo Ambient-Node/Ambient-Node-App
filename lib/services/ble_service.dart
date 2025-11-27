@@ -114,29 +114,44 @@ class BleService {
 
   /// 디바이스 연결
   Future<void> connect(BluetoothDevice device) async {
-    // 이미 연결 중이거나 연결된 상태면 무시
+    // 1. 이미 연결 중이거나 연결된 상태면 무시
     if (_connectionStateController.value == BleConnectionState.connecting ||
         _connectionStateController.value == BleConnectionState.connected) {
       return;
     }
 
+    // 2. UI 상태를 먼저 '연결 중'으로 변경
     _updateState(BleConnectionState.connecting);
-    stopScan();
+    stopScan(); // 연결 시도 전 스캔 중지 (권장사항)
 
     try {
       _log('${device.platformName}에 연결 시도 중...');
 
+      // 3. 물리적 연결 시도 (여기서 딱 한 번만 호출해야 합니다)
       await device.connect(
         timeout: const Duration(seconds: 15),
-        autoConnect: false, // 안정성을 위해 false 권장
+        autoConnect: false, // false가 페어링 프로세스에서 더 안정적입니다.
       );
+
+      // ---------------------------------------------------------
+      // [핵심] 안드로이드 Status 22 및 페어링 튕김 방지 딜레이
+      // 연결 직후 바로 데이터를 주고받으려 하면 안드로이드가 연결을 끊어버립니다.
+      // ---------------------------------------------------------
+      if (Platform.isAndroid) {
+        await Future.delayed(const Duration(seconds: 2));
+      }
+
+      // 4. 서비스 탐색 (딜레이 이후에 실행해야 안전함)
+      // (flutter_blue_plus의 내장 함수 호출)
+      await device.discoverServices();
 
       _connectedDevice = device;
 
-      // 서비스 및 Characteristic 탐색
+      // 5. Notification 구독 등 커스텀 로직 실행
+      // (기존 코드에 있던 _discoverServices 함수가 Notification 설정을 담당한다고 가정합니다)
       await _discoverServices(device);
 
-      // 연결 끊김 모니터링
+      // 6. 연결 끊김 모니터링 리스너 등록
       _deviceConnectionSubscription?.cancel();
       _deviceConnectionSubscription = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
@@ -144,17 +159,25 @@ class BleService {
         }
       });
 
+      // 7. 최종 연결 성공 상태 업데이트
       _updateState(BleConnectionState.connected);
       _log('연결 성공.');
 
     } catch (e) {
       _log('연결 실패: $e');
+
+      // 실패 시 확실하게 연결 해제 시도
+      try {
+        await device.disconnect();
+      } catch (e) {}
+
       _updateState(BleConnectionState.error);
+
       // 에러 메시지를 보여줄 시간을 주고 상태 초기화
       Future.delayed(const Duration(seconds: 2), () {
         _updateState(BleConnectionState.disconnected);
       });
-      rethrow;
+      // rethrow; // 필요하다면 주석 해제 (UI에서 에러를 따로 잡아서 처리하고 싶을 때)
     }
   }
 
@@ -268,10 +291,13 @@ class BleService {
 
       // 일반 JSON 데이터 처리
       final jsonMap = json.decode(str);
-      _dataStreamController.add(jsonMap);
+      if (_dataStreamController.hasListener) {
+        _dataStreamController.add(jsonMap);
+      }
       _log('수신: $str');
     } catch (e) {
       _log('데이터 파싱 오류: $e');
+      return;
     }
   }
 
