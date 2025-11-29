@@ -11,7 +11,7 @@ class TimerSettingScreen extends StatefulWidget {
 }
 
 class _TimerSettingScreenState extends State<TimerSettingScreen> {
-  Duration _selectedDuration = const Duration(minutes: 60); // 기본 1시간
+  Duration _selectedDuration = const Duration(minutes: 60);
 
   @override
   void initState() {
@@ -66,7 +66,6 @@ class _TimerSettingScreenState extends State<TimerSettingScreen> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () {
-                      // 타이머 해제 (0초 반환)
                       Navigator.pop(context, Duration.zero);
                     },
                     style: ElevatedButton.styleFrom(
@@ -82,7 +81,6 @@ class _TimerSettingScreenState extends State<TimerSettingScreen> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () {
-                      // 설정된 시간 반환
                       Navigator.pop(context, _selectedDuration);
                     },
                     style: ElevatedButton.styleFrom(

@@ -220,7 +220,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // A. 유저 프로필 카드 (Hero) - 기존과 동일
           FadeInSlide(
             delay: 0,
             child: Container(
@@ -306,7 +305,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               children: [
                 Expanded(
                   child: _buildBentoCard(
-                    title: "Manual Control",
+                    title: "수동 조작",
                     value: "${data.manualControlCount}회",
                     icon: Icons.touch_app_rounded,
                     accentColor: const Color(0xFFFF7F50),
@@ -315,7 +314,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: _buildBentoCard(
-                    title: "Face Tracking",
+                    title: "얼굴 추적",
                     value: "${data.faceTrackingTime.inMinutes}m",
                     icon: Icons.face_retouching_natural_rounded,
                     accentColor: const Color(0xFF00C896),
@@ -333,7 +332,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               children: [
                 Expanded(
                   child: _buildBentoCard(
-                    title: "Avg Speed",
+                    title: "평균 사용 풍속",
                     value: "Lv.${_getAverageSpeed(data)}",
                     icon: Icons.wind_power_rounded,
                     accentColor: const Color(0xFF3A91FF),
@@ -342,7 +341,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: _buildBentoCard(
-                    title: "Efficiency",
+                    title: "사용 효율",
                     value: "Good",
                     icon: Icons.eco_rounded,
                     accentColor: const Color(0xFF8B5CF6),
@@ -359,7 +358,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("Usage History", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
+                const Text("사용 히스토리", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
                 const SizedBox(height: 16),
 
                 Container(
@@ -384,7 +383,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("Speed Preference", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
+                const Text("선호 풍속", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(24),
@@ -449,7 +448,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 if (_isWeekly) {
                   if (value.toInt() >= data.dailyUsages.length) return const SizedBox();
                   final date = data.dailyUsages[value.toInt()].date;
-                  const weekdays = ["", "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+                  const weekdays = ["", "월", "화", "수", "목", "금", "토", "일"];
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
@@ -460,7 +459,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 } else {
                   return const Padding(
                     padding: EdgeInsets.only(top: 8),
-                    child: Text("Today", style: TextStyle(color: textGrey, fontSize: 12, fontFamily: 'Sen')),
+                    child: Text("오늘", style: TextStyle(color: textGrey, fontSize: 12, fontFamily: 'Sen')),
                   );
                 }
               },
@@ -510,7 +509,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 centerSpaceRadius: 40,
               )
           ),
-          const Text("No Data", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
+          const Text("데이터 없음", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
         ],
       );
     }
@@ -568,10 +567,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 size: 64, color: Colors.grey[300]
             ),
             const SizedBox(height: 24),
-            Text(title ?? "Select a User", style: const TextStyle(fontFamily: 'Sen', fontSize: 20, fontWeight: FontWeight.w800, color: textDark)),
+            Text(title ?? "사용자 선택", style: const TextStyle(fontFamily: 'Sen', fontSize: 20, fontWeight: FontWeight.w800, color: textDark)),
             const SizedBox(height: 8),
             Text(
-              subtitle ?? "Please select a user in the Control tab\nto view analytics.",
+              subtitle ?? "분석하고자 하는 사용자를 유저 탭에서 선택하세요.",
               textAlign: TextAlign.center,
               style: const TextStyle(fontFamily: 'Sen', fontSize: 14, color: textGrey),
             ),

@@ -12,7 +12,6 @@ class FanDashboardWidget extends StatefulWidget {
   final int speed;
   final Function(double) setSpeed;
 
-  // ★ [수정] 분리된 모드 상태
   final String movementMode; // 'manual', 'rotation', 'ai_tracking'
   final bool isNaturalWind;  // true/false
   final Function(String) onMovementModeChange;
@@ -71,7 +70,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   void didUpdateWidget(FanDashboardWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // 모터 모드 변경 시 AI 트래킹이나 자동 회전이 켜지면 리모컨 패널 닫기
     if (widget.movementMode != oldWidget.movementMode) {
       if (widget.movementMode != 'manual') {
         _isRemoteActive = false;
@@ -79,7 +77,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
       _updateRotation();
     }
 
-    // 자연풍 변경 시 팬 회전 속도 갱신
     if (widget.isNaturalWind != oldWidget.isNaturalWind) {
       _updateRotation();
     }
@@ -109,7 +106,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
       return;
     }
 
-    // 자연풍이거나 속도가 0보다 클 때 팬 애니메이션 동작
     if (widget.speed > 0 || widget.isNaturalWind) {
       int durationMs;
       if (widget.isNaturalWind) {
@@ -187,7 +183,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
               physics: const BouncingScrollPhysics(),
               child: Column(
                 children: [
-                  // 1. 타이머 표시
                   if (_remainingTime != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
@@ -263,7 +258,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                    widget.isNaturalWind ? "MODE ACTIVE" : "FAN SPEED",
+                                    widget.isNaturalWind ? "자연풍" : "FAN SPEED",
                                     style: TextStyle(color: Colors.grey[400], fontSize: 10, fontWeight: FontWeight.bold)
                                 ),
                               ],
@@ -363,7 +358,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
           label: "리모컨",
           isActive: false,
           onTap: () {
-            // 리모컨 진입 시 모터 모드를 수동으로 변경 (자연풍 상태는 유지)
             if (widget.movementMode != 'manual') {
               widget.onMovementModeChange('manual');
             }

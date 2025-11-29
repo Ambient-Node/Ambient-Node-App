@@ -10,7 +10,7 @@ import 'package:ambient_node/utils/image_helper.dart';
 import 'package:ambient_node/services/analytics_service.dart';
 import 'package:ambient_node/utils/snackbar_helper.dart';
 
-class ControlScreen extends StatefulWidget {
+class UserScreen extends StatefulWidget {
   final bool connected;
   final String deviceName;
   final VoidCallback onConnect;
@@ -21,7 +21,7 @@ class ControlScreen extends StatefulWidget {
   final Function(Map<String, dynamic>)? onUserDataSend;
   final Stream<Map<String, dynamic>>? dataStream;
 
-  const ControlScreen({
+  const UserScreen({
     super.key,
     required this.connected,
     required this.deviceName,
@@ -34,10 +34,10 @@ class ControlScreen extends StatefulWidget {
   });
 
   @override
-  State<ControlScreen> createState() => _ControlScreenState();
+  State<UserScreen> createState() => _UserScreenState();
 }
 
-class _ControlScreenState extends State<ControlScreen> {
+class _UserScreenState extends State<UserScreen> {
   List<UserProfile> users = [];
   int? selectedUserIndex;
   List<int> selectedUserIndices = [];
@@ -190,14 +190,22 @@ class _ControlScreenState extends State<ControlScreen> {
         };
 
         if (widget.connected && widget.onUserDataSendAwait != null) {
+          
+          showAppSnackBar(context, '사용자 정보를 삭제하는 중입니다...', type: AppSnackType.info);
+
           final ack = await widget.onUserDataSendAwait!.call(payload);
+          
           if (ack) {
-            _deleteUser(index);
+            await _deleteUser(index); 
+            if (mounted) {
+              showAppSnackBar(context, '삭제가 완료되었습니다.', type: AppSnackType.success);
+            }
           } else {
-            showAppSnackBar(context, '기기 ACK를 받지 못했습니다. 삭제가 취소되었습니다.', type: AppSnackType.error);
+            if (mounted) {
+              showAppSnackBar(context, '기기 응답이 없어 삭제가 취소되었습니다.', type: AppSnackType.error);
+            }
           }
         } else if (widget.connected && widget.onUserDataSend != null) {
-          // fallback: try to send without waiting then delete (maintain old behavior)
           widget.onUserDataSend!.call(payload);
           _deleteUser(index);
         } else {

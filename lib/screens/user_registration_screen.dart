@@ -161,19 +161,19 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Delete User', style: TextStyle(fontFamily: 'Sen', fontWeight: FontWeight.bold, color: textDark)),
+        title: const Text('유저 삭제', style: TextStyle(fontFamily: 'Sen', fontWeight: FontWeight.bold, color: textDark)),
         content: const Text('이 사용자를 정말 삭제하시겠습니까?', style: TextStyle(fontFamily: 'Sen', color: textGrey)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(fontFamily: 'Sen', color: textGrey)),
+            child: const Text('취소', style: TextStyle(fontFamily: 'Sen', color: textGrey)),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               Navigator.pop(context, {'action': 'delete'});
             },
-            child: const Text('Delete', style: TextStyle(fontFamily: 'Sen', color: Colors.red, fontWeight: FontWeight.bold)),
+            child: const Text('삭제', style: TextStyle(fontFamily: 'Sen', color: Colors.red, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -194,7 +194,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          widget.isEditMode ? 'Edit Profile' : 'New Profile',
+          widget.isEditMode ? '프로필 수정' : '새 프로필',
           style: const TextStyle(
             color: textDark,
             fontFamily: 'Sen',
@@ -212,13 +212,11 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
             children: [
               const SizedBox(height: 30),
 
-              // 1. Image Picker Area
               Center(
                 child: GestureDetector(
                   onTap: _showImageSourceDialog,
                   child: Stack(
                     children: [
-                      // 이미지 원형 컨테이너
                       Container(
                         width: 140,
                         height: 140,
@@ -280,7 +278,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                   const Padding(
                     padding: EdgeInsets.only(left: 4, bottom: 8),
                     child: Text(
-                      "Display Name",
+                      "기기 이름",
                       style: TextStyle(
                         fontFamily: 'Sen',
                         fontSize: 14,
@@ -303,7 +301,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                       decoration: InputDecoration(
-                        hintText: "Enter user name",
+                        hintText: "사용자 이름을 입력하세요.",
                         hintStyle: TextStyle(
                           fontFamily: 'Sen',
                           color: textGrey.withOpacity(0.7),

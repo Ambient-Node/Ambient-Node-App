@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:ambient_node/services/ble_service.dart';
+import 'package:ambient_node/utils/snackbar_helper.dart';
 
 class UIColors {
   static const kColorCyan = Color(0xFF00BCD4);
@@ -70,13 +71,9 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
         final isConnected = (state == BleConnectionState.connected);
         widget.onConnectionChanged(isConnected);
 
-        if (state == BleConnectionState.connected) {
+          if (state == BleConnectionState.connected) {
           if (!mounted) return;
-
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('디바이스가 연결되었습니다'), backgroundColor: Colors.green),
-          );
+          showAppSnackBar(context, '디바이스가 연결되었습니다', type: AppSnackType.connected);
 
           // 연결 성공 시 화면 닫기 (pop)
           if (Navigator.canPop(context)) {
@@ -87,9 +84,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
         }
         else if (state == BleConnectionState.error) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('연결 중 오류가 발생했습니다'), backgroundColor: Colors.red),
-          );
+          showAppSnackBar(context, '연결 중 오류가 발생했습니다', type: AppSnackType.error);
         }
       });
     });
@@ -152,9 +147,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> with Sing
 
       setState(() => _connectionStates[deviceId] = '연결 실패');
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('연결 실패: $e'), backgroundColor: Colors.red),
-      );
+      showAppSnackBar(context, '연결 실패: $e', type: AppSnackType.error);
 
       Future.delayed(const Duration(seconds: 3), () {
         if (mounted) setState(() => _connectionStates.remove(deviceId));
