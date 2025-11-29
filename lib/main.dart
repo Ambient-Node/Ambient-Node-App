@@ -203,9 +203,11 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _sendData(Map<String, dynamic> data) {
+    // 사용자 ID가 선택되어 있다면 항상 포함 (AI 트래킹 시 필요)
     if (selectedUserId != null) {
       data['user_id'] = selectedUserId;
     }
+    
     if (_isTestMode) {
       print("📤 [Mock Send] ${jsonEncode(data)}");
       return;
@@ -217,11 +219,11 @@ class _MainShellState extends State<MainShell> {
     setState(() => _movementMode = mode);
 
     String finalMode = mode;
-    if (mode == 'manual') finalMode = 'manual_control'; // 내부 코드와 프로토콜 매핑
+    if (mode == 'manual') finalMode = 'manual_control';
 
     _sendData({
       'action': 'mode_change',
-      'type': 'motor',
+      'type': 'motor', // 핵심: 모터 제어임을 명시
       'mode': finalMode,
       'timestamp': DateTime.now().toIso8601String()
     });
@@ -229,7 +231,7 @@ class _MainShellState extends State<MainShell> {
     if(mode == 'ai_tracking') AnalyticsService.onFaceTrackingStart();
   }
 
-  void _setNaturalWind(bool active) {
+   void _setNaturalWind(bool active) {
     setState(() => _isNaturalWind = active);
 
     _sendData({
@@ -238,14 +240,32 @@ class _MainShellState extends State<MainShell> {
       'mode': active ? 'natural_wind' : 'normal_wind',
       'timestamp': DateTime.now().toIso8601String()
     });
+
+    if (!active) {
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (!mounted) return;
+        _sendData({
+          'action': 'speed_change',
+          'speed': speed,
+          'timestamp': DateTime.now().toIso8601String()
+        });
+      });
+    }
   }
 
   void _setSpeed(int newSpeed) {
     int target = newSpeed.clamp(0, 5);
+    
     setState(() {
       speed = target;
       if (_isNaturalWind) {
         _isNaturalWind = false;
+        _sendData({
+          'action': 'mode_change',
+          'type': 'wind',
+          'mode': 'normal_wind',
+          'timestamp': DateTime.now().toIso8601String()
+        });
       }
     });
 
