@@ -301,26 +301,7 @@ class _ControlScreenState extends State<ControlScreen> {
         'action': 'user_select',
         'user_list': selectedUsers,
         'timestamp': DateTime.now().toIso8601String(),
-        // 'selected_users' 필드는 프로토콜에 따라 중복이면 제거 가능
       });
-
-      if (selectedUsers.isEmpty) {
-        // [수정] 유저가 없으면 Manual로 변경 (type: motor 추가)
-        widget.onUserDataSend!.call({
-          'action': 'mode_change',
-          'type': 'motor', // ★ 추가됨
-          'mode': 'manual_control', // 'manual' 대신 명시적 값 사용 권장
-          'timestamp': DateTime.now().toIso8601String(),
-        });
-      } else {
-        // [수정] 유저가 있으면 AI Tracking으로 변경 (type: motor 추가)
-        widget.onUserDataSend!.call({
-          'action': 'mode_change',
-          'type': 'motor', // ★ 추가됨
-          'mode': 'ai_tracking', // 'ai' 대신 'ai_tracking'으로 통일
-          'timestamp': DateTime.now().toIso8601String(),
-        });
-      }
     }
   }
 
