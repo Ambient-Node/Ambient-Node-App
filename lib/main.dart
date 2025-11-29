@@ -9,7 +9,7 @@ import 'package:ambient_node/screens/analytics_screen.dart';
 import 'package:ambient_node/screens/control_screen.dart';
 import 'package:ambient_node/screens/device_selection_screen.dart';
 import 'package:ambient_node/screens/settings_screen.dart';
-
+import 'package:ambient_node/utils/snackbar_helper.dart';
 import 'package:ambient_node/services/analytics_service.dart';
 import 'package:ambient_node/services/ble_service.dart';
 
@@ -344,7 +344,7 @@ class _MainShellState extends State<MainShell> {
         selectedUserImagePath: selectedUserImagePath,
       ),
 
-      ControlScreen(
+      UserScreen(
         connected: connected,
         deviceName: deviceName,
         onConnect: handleConnect,
