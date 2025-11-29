@@ -140,6 +140,23 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  /// Send data and wait for device ACK. Returns true when device ACKs.
+  Future<bool> _sendDataAwaitAck(Map<String, dynamic> data) async {
+    if (_isTestMode) {
+      print("📤 [Mock Send AwaitAck] ${jsonEncode(data)}");
+      return true;
+    }
+    if (!connected) return false;
+
+    try {
+      final res = await ble.sendJsonAwaitAck(data);
+      return res;
+    } catch (e) {
+      print('sendDataAwaitAck error: $e');
+      return false;
+    }
+  }
+
 
   @override
   void dispose() {
@@ -342,6 +359,7 @@ class _MainShellState extends State<MainShell> {
           AnalyticsService.onUserChanged(name);
         },
         onUserDataSend: _sendData,
+        onUserDataSendAwait: _sendDataAwaitAck,
       ),
 
       AnalyticsScreen(selectedUserName: selectedUserName),

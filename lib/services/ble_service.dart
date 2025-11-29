@@ -36,11 +36,52 @@ class BleService {
   );
   final _dataStreamController = StreamController<Map<String, dynamic>>.broadcast();
   final _logController = StreamController<String>.broadcast();
+  final Map<String, Completer<bool>> _pendingAcks = {};
 
   Stream<BleConnectionState> get connectionStateStream => _connectionStateController.stream;
   Stream<Map<String, dynamic>> get dataStream => _dataStreamController.stream;
   Stream<String> get logStream => _logController.stream;
   BleConnectionState get currentState => _connectionStateController.value;
+
+  /// Send JSON and wait for an ACK from device. The ACK is expected to be
+  /// a JSON message with `type == 'ACK'` (or `ack == true`) and include
+  /// matching `action` and `user_id` fields. The `ackKeyField` is the
+  /// field used to correlate (default 'user_id'). Returns true if ACK
+  /// received within [timeout].
+  Future<bool> sendJsonAwaitAck(Map<String, dynamic> data,
+      {String ackKeyField = 'user_id', Duration timeout = const Duration(seconds: 5)}) async {
+    final action = data['action']?.toString() ?? '';
+    final keyVal = data[ackKeyField]?.toString() ?? '';
+    final ackKey = 'ack:$action:$keyVal';
+
+    if (_pendingAcks.containsKey(ackKey)) {
+      _log('이미 대기중인 ACK 키: $ackKey');
+      return false;
+    }
+
+    final completer = Completer<bool>();
+    _pendingAcks[ackKey] = completer;
+
+    try {
+      await sendJson(data);
+    } catch (e) {
+      _pendingAcks.remove(ackKey);
+      completer.complete(false);
+      return false;
+    }
+
+    // wait for ack or timeout
+    try {
+      return await completer.future.timeout(timeout, onTimeout: () {
+        _pendingAcks.remove(ackKey);
+        _log('ACK 타임아웃: $ackKey');
+        return false;
+      });
+    } catch (_) {
+      _pendingAcks.remove(ackKey);
+      return false;
+    }
+  }
 
   StreamSubscription? _deviceStateSubscription;
 
@@ -259,6 +300,27 @@ class BleService {
       }
 
       final jsonMap = json.decode(str);
+
+      // ACK handling: device may send { type: 'ACK', action: 'user_delete', user_id: '...' }
+      if (jsonMap is Map) {
+        try {
+          final typeVal = jsonMap['type'];
+          final ackFlag = jsonMap['ack'];
+          final isAck = (typeVal == 'ACK') || (ackFlag == true);
+          if (isAck) {
+            final action = jsonMap['action']?.toString() ?? '';
+            final userId = jsonMap['user_id']?.toString() ?? '';
+            final ackKey = 'ack:$action:$userId';
+            final completer = _pendingAcks.remove(ackKey);
+            if (completer != null && !completer.isCompleted) {
+              completer.complete(true);
+            }
+          }
+        } catch (e) {
+          // ignore ack parsing errors
+        }
+      }
+
       if (_dataStreamController.hasListener) {
         _dataStreamController.add(jsonMap);
       }

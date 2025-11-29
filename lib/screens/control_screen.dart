@@ -28,6 +28,7 @@ class ControlScreen extends StatefulWidget {
     this.selectedUserName,
     required this.onUserSelectionChanged,
     this.onUserDataSend,
+    this.onUserDataSendAwait,
     this.dataStream,
   });
 
@@ -111,23 +112,37 @@ class _ControlScreenState extends State<ControlScreen> {
     );
     if (result != null && result['action'] == 'register') {
       final generatedUserId = 'user_${DateTime.now().millisecondsSinceEpoch}';
-      final newUser = UserProfile(
-          name: result['name']!,
-          imagePath: result['imagePath'],
-          userId: generatedUserId);
-      setState(() => users.add(newUser));
-      await _saveUsers();
+      final payload = {
+        'action': 'user_register',
+        'user_id': generatedUserId,
+        'username': result['name']!,
+        'image_base64': await ImageHelper.encodeImageToBase64(result['imagePath']),
+        'timestamp': DateTime.now().toIso8601String(),
+        'selected_users': _getSelectedUsersList(),
+      };
 
-      if (widget.connected && widget.onUserDataSend != null) {
-        final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
-        widget.onUserDataSend!.call({
-          'action': 'user_register',
-          'user_id': generatedUserId,
-          'username': result['name']!,
-          'image_base64': base64Image,
-          'timestamp': DateTime.now().toIso8601String(),
-          'selected_users': _getSelectedUsersList(),
-        });
+      // Require device ACK before creating local profile
+      if (widget.connected && widget.onUserDataSendAwait != null) {
+        final ack = await widget.onUserDataSendAwait!.call(payload);
+        if (ack) {
+          final newUser = UserProfile(
+              name: result['name']!,
+              imagePath: result['imagePath'],
+              userId: generatedUserId);
+          setState(() => users.add(newUser));
+          await _saveUsers();
+        } else {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('기기 ACK를 받지 못했습니다. 등록이 취소되었습니다.'), backgroundColor: Colors.red),
+          );
+        }
+      } else {
+        // Not connected / no await callback: do not create and inform user
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('기기 연결이 필요합니다. 등록이 취소되었습니다.'), backgroundColor: Colors.red),
+        );
       }
     }
   }
@@ -171,15 +186,34 @@ class _ControlScreenState extends State<ControlScreen> {
         }
       } else if (result['action'] == 'delete') {
         final userToDelete = users[index];
-        if (widget.connected && widget.onUserDataSend != null) {
-          widget.onUserDataSend!.call({
-            'action': 'user_delete',
-            'user_id': userToDelete.userId,
-            'timestamp': DateTime.now().toIso8601String(),
-            'selected_users': _getSelectedUsersList(),
-          });
+
+        final payload = {
+          'action': 'user_delete',
+          'user_id': userToDelete.userId,
+          'timestamp': DateTime.now().toIso8601String(),
+          'selected_users': _getSelectedUsersList(),
+        };
+
+        if (widget.connected && widget.onUserDataSendAwait != null) {
+          final ack = await widget.onUserDataSendAwait!.call(payload);
+          if (ack) {
+            _deleteUser(index);
+          } else {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('기기 ACK를 받지 못했습니다. 삭제가 취소되었습니다.'), backgroundColor: Colors.red),
+            );
+          }
+        } else if (widget.connected && widget.onUserDataSend != null) {
+          // fallback: try to send without waiting then delete (maintain old behavior)
+          widget.onUserDataSend!.call(payload);
+          _deleteUser(index);
+        } else {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('기기 연결이 필요합니다. 삭제가 취소되었습니다.'), backgroundColor: Colors.red),
+          );
         }
-        _deleteUser(index);
       }
     }
   }
