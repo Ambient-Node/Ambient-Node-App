@@ -14,7 +14,7 @@ class ControlScreen extends StatefulWidget {
   final String deviceName;
   final VoidCallback onConnect;
   final String? selectedUserName;
-
+  final Future<bool> Function(Map<String, dynamic>)? onUserDataSendAwait; 
   final Function(String?, String?, String?) onUserSelectionChanged;
 
   final Function(Map<String, dynamic>)? onUserDataSend;
