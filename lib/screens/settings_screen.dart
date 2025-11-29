@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart'; // iOS 스타일 다이얼로그 등을 위해
+import '../utils/snackbar_helper.dart';
 
 class SettingsScreen extends StatelessWidget {
   final bool connected;
@@ -289,14 +290,7 @@ class SettingsScreen extends StatelessWidget {
 
   void _sendCommand(BuildContext context, String action, String message) {
     if (!connected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text("기기와 연결되어 있지 않습니다."),
-          backgroundColor: Colors.red[400],
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+      showAppSnackBar(context, "기기와 연결되어 있지 않습니다.", type: AppSnackType.error);
       return;
     }
 
@@ -305,13 +299,6 @@ class SettingsScreen extends StatelessWidget {
       "timestamp": DateTime.now().toIso8601String(),
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        backgroundColor: const Color(0xFF2D3142),
-      ),
-    );
+    showAppSnackBar(context, message, type: AppSnackType.info);
   }
 }

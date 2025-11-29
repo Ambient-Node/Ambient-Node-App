@@ -82,6 +82,7 @@ class _MainShellState extends State<MainShell> {
   StreamSubscription? _bleDataSub;
 
   bool connected = false;
+  bool _wasConnected = false;
   String deviceName = 'Ambient';
 
   int speed = 0;
@@ -110,13 +111,21 @@ class _MainShellState extends State<MainShell> {
             _movementMode = 'manual_control';
             _isNaturalWind = false;
           });
-          _showSnackBar('기기와의 연결이 끊어졌습니다.');
+
+          // Only show disconnect snackbar if we were previously connected
+          if (_wasConnected) {
+            showAppSnackBar(context, '기기와의 연결이 끊어졌습니다.', type: AppSnackType.error);
+          }
+          _wasConnected = false;
         } else if (state == BleConnectionState.connected) {
           setState(() {
             connected = true;
           });
+          _wasConnected = true;
+          // show connected notification with separate design
+          showAppSnackBar(context, '디바이스가 연결되었습니다', type: AppSnackType.connected);
         } else if (state == BleConnectionState.error) {
-          _showSnackBar('BLE 오류가 발생했습니다.');
+          showAppSnackBar(context, 'BLE 오류가 발생했습니다.', type: AppSnackType.error);
         }
       });
 
@@ -207,16 +216,7 @@ class _MainShellState extends State<MainShell> {
   void _showSnackBar(String message) {
     if (!mounted) return;
     final bool isError = message.contains('해제') || message.contains('오류');
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(fontFamily: 'Sen', color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: isError ? const Color(0xFFFF5252) : const Color(0xFF2D3142),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-      ),
-    );
+    showAppSnackBar(context, message, type: isError ? AppSnackType.error : AppSnackType.info);
   }
 
   void _sendData(Map<String, dynamic> data) {

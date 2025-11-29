@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../utils/snackbar_helper.dart';
 
 class UserRegistrationScreen extends StatefulWidget {
   final String? existingName;
@@ -59,7 +60,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
         setState(() => _imageFile = image);
       }
     } catch (e) {
-      _showErrorSnackBar('접근 권한이 필요합니다');
+      showAppSnackBar(context, '접근 권한이 필요합니다', type: AppSnackType.error);
     }
   }
 
@@ -137,11 +138,11 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
   void _handleRegister() {
     if (_imageFile == null) {
-      _showErrorSnackBar('프로필 사진을 등록해주세요');
+      showAppSnackBar(context, '프로필 사진을 등록해주세요', type: AppSnackType.error);
       return;
     }
     if (_nameController.text.trim().isEmpty) {
-      _showErrorSnackBar('이름을 입력해주세요');
+      showAppSnackBar(context, '이름을 입력해주세요', type: AppSnackType.error);
       return;
     }
 
@@ -179,18 +180,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     );
   }
 
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(fontFamily: 'Sen')),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Colors.redAccent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
+  
 
   @override
   Widget build(BuildContext context) {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:ambient_node/widgets/app_top_bar.dart';
 import 'package:ambient_node/screens/timer_setting_screen.dart';
 import 'package:ambient_node/widgets/remote_control_dpad.dart';
+import 'package:ambient_node/utils/snackbar_helper.dart';
 
 class FanDashboardWidget extends StatefulWidget {
   final bool connected;
@@ -158,19 +159,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   }
 
   void _showNatureModeWarning() {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text(
-          "자연풍 모드에서는 풍량을 조절할 수 없습니다.\n자연풍을 먼저 꺼주세요.",
-          style: TextStyle(fontFamily: 'Sen', color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: const Color(0xFF2D3142),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    showAppSnackBar(context, "자연풍 모드에서는 풍량을 조절할 수 없습니다.\n자연풍을 먼저 꺼주세요.", type: AppSnackType.info);
   }
 
   @override

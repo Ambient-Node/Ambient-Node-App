@@ -8,6 +8,7 @@ import 'package:ambient_node/widgets/app_top_bar.dart';
 import 'package:ambient_node/screens/user_registration_screen.dart';
 import 'package:ambient_node/utils/image_helper.dart';
 import 'package:ambient_node/services/analytics_service.dart';
+import 'package:ambient_node/utils/snackbar_helper.dart';
 
 class ControlScreen extends StatefulWidget {
   final bool connected;
@@ -132,17 +133,11 @@ class _ControlScreenState extends State<ControlScreen> {
           setState(() => users.add(newUser));
           await _saveUsers();
         } else {
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('기기 ACK를 받지 못했습니다. 등록이 취소되었습니다.'), backgroundColor: Colors.red),
-          );
+          showAppSnackBar(context, '기기 ACK를 받지 못했습니다. 등록이 취소되었습니다.', type: AppSnackType.error);
         }
       } else {
         // Not connected / no await callback: do not create and inform user
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('기기 연결이 필요합니다. 등록이 취소되었습니다.'), backgroundColor: Colors.red),
-        );
+        showAppSnackBar(context, '기기 연결이 필요합니다. 등록이 취소되었습니다.', type: AppSnackType.error);
       }
     }
   }
@@ -199,20 +194,14 @@ class _ControlScreenState extends State<ControlScreen> {
           if (ack) {
             _deleteUser(index);
           } else {
-            ScaffoldMessenger.of(context).clearSnackBars();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('기기 ACK를 받지 못했습니다. 삭제가 취소되었습니다.'), backgroundColor: Colors.red),
-            );
+            showAppSnackBar(context, '기기 ACK를 받지 못했습니다. 삭제가 취소되었습니다.', type: AppSnackType.error);
           }
         } else if (widget.connected && widget.onUserDataSend != null) {
           // fallback: try to send without waiting then delete (maintain old behavior)
           widget.onUserDataSend!.call(payload);
           _deleteUser(index);
         } else {
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('기기 연결이 필요합니다. 삭제가 취소되었습니다.'), backgroundColor: Colors.red),
-          );
+          showAppSnackBar(context, '기기 연결이 필요합니다. 삭제가 취소되었습니다.', type: AppSnackType.error);
         }
       }
     }
@@ -241,28 +230,7 @@ class _ControlScreenState extends State<ControlScreen> {
         selectedUserIndices.sort();
       } else {
         if (selectedUserIndices.length >= 2) {
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                  content: Row(
-                    children: const [
-                      Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          '최대 2명까지만 선택 가능합니다',
-                          style: TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  backgroundColor: const Color(0xFFFF5252),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                  duration: const Duration(seconds: 2)
-              )
-          );
+          showAppSnackBar(context, '최대 2명까지만 선택 가능합니다', type: AppSnackType.error);
           return;
         }
         selectedUserIndices.add(index);
