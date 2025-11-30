@@ -94,7 +94,6 @@ class _MainShellState extends State<MainShell> {
   String? selectedUserImagePath;
 
   @override
-  @override
   void initState() {
     super.initState();
     ble = BleService();
@@ -112,7 +111,6 @@ class _MainShellState extends State<MainShell> {
             _isNaturalWind = false;
           });
 
-          // Only show disconnect snackbar if we were previously connected
           if (_wasConnected) {
             showAppSnackBar(context, '기기와의 연결이 끊어졌습니다.', type: AppSnackType.error);
           }
@@ -122,7 +120,6 @@ class _MainShellState extends State<MainShell> {
             connected = true;
           });
           _wasConnected = true;
-          // show connected notification with separate design
           showAppSnackBar(context, '디바이스가 연결되었습니다', type: AppSnackType.connected);
         } else if (state == BleConnectionState.error) {
           showAppSnackBar(context, 'BLE 오류가 발생했습니다.', type: AppSnackType.error);
@@ -131,6 +128,20 @@ class _MainShellState extends State<MainShell> {
 
       _bleDataSub = ble.dataStream.listen((data) {
         _bleDataStreamController.add(data);
+
+        if (data['event_type'] == 'speed_change') {
+           int s = data['speed'] ?? 0;
+           setState(() => speed = s);
+        }
+        if (data['event_type'] == 'mode_change') {
+           String type = data['type'] ?? '';
+           String mode = data['mode'] ?? '';
+           if (type == 'wind') {
+             setState(() => _isNaturalWind = (mode == 'natural_wind'));
+           } else if (type == 'motor') {
+             setState(() => _movementMode = (mode == 'manual_control' ? 'manual' : mode));
+           }
+        }
 
         if (data['type'] == 'SHUTDOWN') {
           if (!mounted) return;
@@ -149,23 +160,32 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  /// Send data and wait for device ACK. Returns true when device ACKs.
-  Future<bool> _sendDataAwaitAck(Map<String, dynamic> data) async {
+  // [수정] 타이머 설정 (Map 반환)
+  Future<Map<String, dynamic>?> _setTimer(int seconds) async {
     if (_isTestMode) {
-      print("📤 [Mock Send AwaitAck] ${jsonEncode(data)}");
-      return true;
+      return {'success': true, 'end_time': DateTime.now().add(Duration(seconds: seconds)).toIso8601String()};
     }
-    if (!connected) return false;
 
-    try {
-      final res = await ble.sendJsonAwaitAck(data);
-      return res;
-    } catch (e) {
-      print('sendDataAwaitAck error: $e');
-      return false;
+    if (!connected) {
+      _showSnackBar('기기 연결이 필요합니다.');
+      return null;
     }
+
+    return await ble.sendRequestWithAck({
+      'action': 'timer',
+      'duration_sec': seconds,
+      'timestamp': DateTime.now().toIso8601String()
+    }, timeout: const Duration(seconds: 3));
   }
 
+  // [수정] ControlScreen용 ACK 래퍼 (Bool 반환)
+  Future<bool> _sendDataAwaitAckBool(Map<String, dynamic> data) async {
+    if (_isTestMode) return true;
+    if (!connected) return false;
+    
+    final res = await ble.sendRequestWithAck(data);
+    return res != null;
+  }
 
   @override
   void dispose() {
@@ -215,12 +235,11 @@ class _MainShellState extends State<MainShell> {
 
   void _showSnackBar(String message) {
     if (!mounted) return;
-    final bool isError = message.contains('해제') || message.contains('오류');
+    final bool isError = message.contains('해제') || message.contains('오류') || message.contains('실패');
     showAppSnackBar(context, message, type: isError ? AppSnackType.error : AppSnackType.info);
   }
 
   void _sendData(Map<String, dynamic> data) {
-    // 사용자 ID가 선택되어 있다면 항상 포함 (AI 트래킹 시 필요)
     if (selectedUserId != null) {
       data['user_id'] = selectedUserId;
     }
@@ -240,7 +259,7 @@ class _MainShellState extends State<MainShell> {
 
     _sendData({
       'action': 'mode_change',
-      'type': 'motor', // 핵심: 모터 제어임을 명시
+      'type': 'motor',
       'mode': finalMode,
       'timestamp': DateTime.now().toIso8601String()
     });
@@ -296,12 +315,9 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _setTimer(int seconds) {
-    _sendData({
-      'action': 'timer',
-      'duration_sec': seconds,
-      'timestamp': DateTime.now().toIso8601String()
-    });
-    _showSnackBar(seconds > 0 ? '${seconds ~/ 60}분 후 종료됩니다.' : '타이머가 취소되었습니다.');
+    // 기존 _setTimer 호출은 화면에서 담당하므로 여기선 UI 메시지용 단순 호출만 남길 수도 있으나,
+    // 실제 로직은 FanDashboardWidget에서 호출하는 _setTimer(Map 반환)를 사용함.
+    // 아래 함수는 호환성을 위해 남겨두되 실제로는 Future 반환형을 사용.
   }
 
   void _sendManualCommand(String direction, int toggleOn) {
@@ -326,25 +342,21 @@ class _MainShellState extends State<MainShell> {
       DashboardScreen(
         connected: connected,
         onConnect: handleConnect,
-
         speed: speed,
         setSpeed: _setSpeed,
-
         movementMode: _movementMode,
         isNaturalWind: _isNaturalWind,
         onMovementModeChange: _setMovementMode,
         onNaturalWindChange: _setNaturalWind,
-
-        onTimerSet: _setTimer,
+        onTimerSet: _setTimer, // [Map 반환]
         onManualControl: _sendManualCommand,
-
         openAnalytics: () => setState(() => _index = 2),
         deviceName: deviceName,
         selectedUserName: selectedUserName,
         selectedUserImagePath: selectedUserImagePath,
       ),
 
-      UserScreen(
+      ControlScreen(
         connected: connected,
         deviceName: deviceName,
         onConnect: handleConnect,
@@ -359,7 +371,7 @@ class _MainShellState extends State<MainShell> {
           AnalyticsService.onUserChanged(name);
         },
         onUserDataSend: _sendData,
-        onUserDataSendAwait: _sendDataAwaitAck,
+        onUserDataSendAwait: _sendDataAwaitAckBool, // [Bool 반환]
       ),
 
       AnalyticsScreen(selectedUserName: selectedUserName),
