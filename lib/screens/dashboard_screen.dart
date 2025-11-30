@@ -16,7 +16,7 @@ class DashboardScreen extends StatelessWidget {
   final bool isNaturalWind;
   final Function(String) onMovementModeChange;
   final Function(bool) onNaturalWindChange;
-  final Future<Map<String, dynamic>?> Function(int) onTimerSet; // [Map 반환]
+  final Future<Map<String, dynamic>?> Function(int) onTimerSet;
   final Function(String, int) onManualControl;
   final VoidCallback openAnalytics;
   final String deviceName;
@@ -71,7 +71,7 @@ class FanDashboardWidget extends StatefulWidget {
   final bool isNaturalWind;  
   final Function(String) onMovementModeChange;
   final Function(bool) onNaturalWindChange;
-  final Future<Map<String, dynamic>?> Function(int) onTimerSet; // [Map 반환]
+  final Future<Map<String, dynamic>?> Function(int) onTimerSet; // [수정]
   final VoidCallback openAnalytics;
   final Function(String, int) onManualControl;
   final String deviceName;
@@ -124,18 +124,15 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   @override
   void didUpdateWidget(FanDashboardWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-
     if (widget.movementMode != oldWidget.movementMode) {
       if (widget.movementMode != 'manual') {
         _isRemoteActive = false;
       }
       _updateRotation();
     }
-
     if (widget.isNaturalWind != oldWidget.isNaturalWind) {
       _updateRotation();
     }
-
     if (widget.connected != oldWidget.connected) {
       if (!widget.connected) {
         _isRemoteActive = false;
@@ -211,14 +208,14 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
         if (remaining.inSeconds > 0) {
           _remainingTime = remaining;
         } else {
-          // [타이머 종료 시점] UI 강제 초기화
+          // [타이머 종료] UI 강제 초기화
           _remainingTime = null;
           timer.cancel();
           SharedPreferences.getInstance().then((prefs) => prefs.remove('timer_end_time'));
 
-          widget.setSpeed(0.0);
-          widget.onNaturalWindChange(false);
-          widget.onMovementModeChange('manual');
+          widget.setSpeed(0.0); // 속도 0 (자연풍도 꺼짐)
+          widget.onNaturalWindChange(false); // UI 자연풍 해제
+          widget.onMovementModeChange('manual'); // 움직임 초기화
           
           if(mounted) {
             showAppSnackBar(context, '타이머가 종료되어 전원을 끕니다.', type: AppSnackType.info);
@@ -236,7 +233,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
 
     if (result == null) return;
 
-    // [핵심] 서버 시간 동기화
+    // [핵심] 기기 응답(데이터 포함) 대기
     final ackData = await widget.onTimerSet(result.inSeconds);
 
     if (ackData != null) {
@@ -275,7 +272,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   @override
   Widget build(BuildContext context) {
     final currentSpeed = widget.speed;
-
     final bool canControlSpeed = widget.connected && !widget.isNaturalWind;
     final Color controlColor = canControlSpeed ? _fanBlue : Colors.grey.shade300;
 
@@ -347,7 +343,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
                           ),
                         ),
                         const SizedBox(height: 24),
-
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -390,9 +385,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 16),
-
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
@@ -437,7 +430,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
           isActive: _remainingTime != null,
           onTap: _handleTimerSetting,
         ),
-
         _buildFunctionButton(
           icon: Icons.face,
           label: "AI 트래킹",
@@ -447,7 +439,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
             widget.onMovementModeChange(nextMode);
           },
         ),
-
         _buildFunctionButton(
           icon: Icons.sync,
           label: "회전",
@@ -457,7 +448,6 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
             widget.onMovementModeChange(nextMode);
           },
         ),
-
         _buildFunctionButton(
           icon: Icons.grass,
           label: "자연풍",
@@ -466,18 +456,13 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
             widget.onNaturalWindChange(!widget.isNaturalWind);
           },
         ),
-
         _buildFunctionButton(
           icon: Icons.gamepad_outlined,
           label: "리모컨",
           isActive: false,
           onTap: () {
-            if (widget.movementMode != 'manual') {
-              widget.onMovementModeChange('manual');
-            }
-            setState(() {
-              _isRemoteActive = true;
-            });
+            if (widget.movementMode != 'manual') widget.onMovementModeChange('manual');
+            setState(() => _isRemoteActive = true);
           },
         ),
       ],
@@ -494,10 +479,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                "수동 회전 조작",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D3142)),
-              ),
+              const Text("수동 회전 조작", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D3142))),
               IconButton(
                 onPressed: () => setState(() => _isRemoteActive = false),
                 icon: const Icon(Icons.close_rounded, color: Colors.grey),
@@ -528,15 +510,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   }
 
   Widget _roundControlButton({required IconData icon, required VoidCallback onTap, required Color color}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(40),
-      child: Container(
-        width: 50, height: 50,
-        decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-        child: Icon(icon, size: 24, color: color),
-      ),
-    );
+    return InkWell(onTap: onTap, borderRadius: BorderRadius.circular(40), child: Container(width: 50, height: 50, decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle), child: Icon(icon, size: 24, color: color)));
   }
 
   Widget _buildFunctionButton({required IconData icon, required String label, required bool isActive, required VoidCallback onTap}) {
@@ -555,14 +529,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
             child: Icon(icon, color: isActive ? Colors.white : Colors.grey[500], size: 22),
           ),
           const SizedBox(height: 6),
-          Text(
-              label,
-              style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: isActive ? _fanBlue : Colors.grey[400]
-              )
-          ),
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: isActive ? _fanBlue : Colors.grey[400])),
         ],
       ),
     );
@@ -570,31 +537,8 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
 
   Widget _buildFanBlades(Color color) {
     Widget blade(double angle) {
-      return Transform.rotate(
-        angle: angle,
-        child: Container(
-          width: 20, height: 85,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [color.withOpacity(0.9), color.withOpacity(0.2)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-      );
+      return Transform.rotate(angle: angle, child: Container(width: 20, height: 85, decoration: BoxDecoration(gradient: LinearGradient(colors: [color.withOpacity(0.9), color.withOpacity(0.2)], begin: Alignment.topCenter, end: Alignment.bottomCenter), borderRadius: BorderRadius.circular(16))));
     }
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (_, __) => Transform.rotate(
-        angle: _controller.value * 2 * math.pi,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            blade(0),
-            blade(2 * math.pi / 3),
-            blade(4 * math.pi / 3),
-            Container(width: 32, height: 32, decoration: BoxDecoration(shape: BoxShape.circle, color: color, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]))
-          ],
-        ),
-      ),
-    );
+    return AnimatedBuilder(animation: _controller, builder: (_, __) => Transform.rotate(angle: _controller.value * 2 * math.pi, child: Stack(alignment: Alignment.center, children: [blade(0), blade(2 * math.pi / 3), blade(4 * math.pi / 3), Container(width: 32, height: 32, decoration: BoxDecoration(shape: BoxShape.circle, color: color, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]))])));
   }
 }

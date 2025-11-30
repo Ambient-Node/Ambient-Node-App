@@ -49,14 +49,12 @@ class MyApp extends StatelessWidget {
 
 class SplashWrapper extends StatefulWidget {
   const SplashWrapper({super.key});
-
   @override
   State<SplashWrapper> createState() => _SplashWrapperState();
 }
 
 class _SplashWrapperState extends State<SplashWrapper> {
   bool _showMain = false;
-
   @override
   Widget build(BuildContext context) {
     if (_showMain) return const MainShell();
@@ -66,7 +64,6 @@ class _SplashWrapperState extends State<SplashWrapper> {
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
-
   @override
   State<MainShell> createState() => _MainShellState();
 }
@@ -86,8 +83,8 @@ class _MainShellState extends State<MainShell> {
   String deviceName = 'Ambient';
 
   int speed = 0;
-  String _movementMode = 'manual'; // 'manual', 'rotation', 'ai_tracking'
-  bool _isNaturalWind = false;     // true: natural_wind, false: normal_wind
+  String _movementMode = 'manual'; 
+  bool _isNaturalWind = false;     
 
   String? selectedUserId;
   String? selectedUserName;
@@ -160,7 +157,7 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  // [수정] 타이머 설정 (Map 반환)
+  // [수정] 타이머 설정용 (Map 반환) - DashboardScreen에서 사용
   Future<Map<String, dynamic>?> _setTimer(int seconds) async {
     if (_isTestMode) {
       return {'success': true, 'end_time': DateTime.now().add(Duration(seconds: seconds)).toIso8601String()};
@@ -178,11 +175,11 @@ class _MainShellState extends State<MainShell> {
     }, timeout: const Duration(seconds: 3));
   }
 
-  // [수정] ControlScreen용 ACK 래퍼 (Bool 반환)
+  // [추가] ControlScreen용 (Bool 반환) - ACK 여부만 필요할 때
   Future<bool> _sendDataAwaitAckBool(Map<String, dynamic> data) async {
     if (_isTestMode) return true;
     if (!connected) return false;
-    
+
     final res = await ble.sendRequestWithAck(data);
     return res != null;
   }
@@ -243,7 +240,6 @@ class _MainShellState extends State<MainShell> {
     if (selectedUserId != null) {
       data['user_id'] = selectedUserId;
     }
-    
     if (_isTestMode) {
       print("📤 [Mock Send] ${jsonEncode(data)}");
       return;
@@ -253,7 +249,6 @@ class _MainShellState extends State<MainShell> {
 
   void _setMovementMode(String mode) {
     setState(() => _movementMode = mode);
-
     String finalMode = mode;
     if (mode == 'manual') finalMode = 'manual_control';
 
@@ -263,20 +258,17 @@ class _MainShellState extends State<MainShell> {
       'mode': finalMode,
       'timestamp': DateTime.now().toIso8601String()
     });
-
     if(mode == 'ai_tracking') AnalyticsService.onFaceTrackingStart();
   }
 
    void _setNaturalWind(bool active) {
     setState(() => _isNaturalWind = active);
-
     _sendData({
       'action': 'mode_change',
       'type': 'wind',
       'mode': active ? 'natural_wind' : 'normal_wind',
       'timestamp': DateTime.now().toIso8601String()
     });
-
     if (!active) {
       Future.delayed(const Duration(milliseconds: 50), () {
         if (!mounted) return;
@@ -291,7 +283,6 @@ class _MainShellState extends State<MainShell> {
 
   void _setSpeed(int newSpeed) {
     int target = newSpeed.clamp(0, 5);
-    
     setState(() {
       speed = target;
       if (_isNaturalWind) {
@@ -304,27 +295,14 @@ class _MainShellState extends State<MainShell> {
         });
       }
     });
-
-    _sendData({
-      'action': 'speed_change',
-      'speed': target,
-      'timestamp': DateTime.now().toIso8601String()
-    });
-
+    _sendData({'action': 'speed_change', 'speed': target, 'timestamp': DateTime.now().toIso8601String()});
     AnalyticsService.onSpeedChanged(target);
-  }
-
-  void _setTimer(int seconds) {
-    // 기존 _setTimer 호출은 화면에서 담당하므로 여기선 UI 메시지용 단순 호출만 남길 수도 있으나,
-    // 실제 로직은 FanDashboardWidget에서 호출하는 _setTimer(Map 반환)를 사용함.
-    // 아래 함수는 호환성을 위해 남겨두되 실제로는 Future 반환형을 사용.
   }
 
   void _sendManualCommand(String direction, int toggleOn) {
     if (_movementMode != 'manual') {
       _setMovementMode('manual');
     }
-
     String d = direction.isNotEmpty ? direction[0].toLowerCase() : direction;
     _sendData({
       'action': 'direction_change',
@@ -332,7 +310,6 @@ class _MainShellState extends State<MainShell> {
       'toggleOn': toggleOn,
       'timestamp': DateTime.now().toIso8601String(),
     });
-
     if (toggleOn == 1) AnalyticsService.onManualControl(d, speed);
   }
 
@@ -348,7 +325,7 @@ class _MainShellState extends State<MainShell> {
         isNaturalWind: _isNaturalWind,
         onMovementModeChange: _setMovementMode,
         onNaturalWindChange: _setNaturalWind,
-        onTimerSet: _setTimer, // [Map 반환]
+        onTimerSet: _setTimer, // [핵심] Map? 반환
         onManualControl: _sendManualCommand,
         openAnalytics: () => setState(() => _index = 2),
         deviceName: deviceName,
@@ -371,7 +348,7 @@ class _MainShellState extends State<MainShell> {
           AnalyticsService.onUserChanged(name);
         },
         onUserDataSend: _sendData,
-        onUserDataSendAwait: _sendDataAwaitAckBool, // [Bool 반환]
+        onUserDataSendAwait: _sendDataAwaitAckBool, // [핵심] Bool 반환
       ),
 
       AnalyticsScreen(selectedUserName: selectedUserName),
@@ -385,10 +362,7 @@ class _MainShellState extends State<MainShell> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       extendBody: true,
-      body: IndexedStack(
-        index: _index,
-        children: screens,
-      ),
+      body: IndexedStack(index: _index, children: screens),
       bottomNavigationBar: _buildBottomBar(),
     );
   }
@@ -399,9 +373,7 @@ class _MainShellState extends State<MainShell> {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.95),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, -5)),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, -5))],
       ),
       child: SafeArea(
         child: Row(

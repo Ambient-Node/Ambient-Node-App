@@ -32,7 +32,7 @@ class ControlScreen extends StatefulWidget {
     this.selectedUserName,
     required this.onUserSelectionChanged,
     this.onUserDataSend,
-    this.onUserDataSendAwait,
+    required this.onUserDataSendAwait, // 필수 파라미터
     this.dataStream,
   });
 
@@ -56,8 +56,10 @@ class _ControlScreenState extends State<ControlScreen> {
   void initState() {
     super.initState();
     _loadUsers();
+
     _dataSubscription = widget.dataStream?.listen((data) {
       if (!mounted) return;
+      // 필요 시 데이터 수신 로직 추가
     });
   }
 
@@ -84,7 +86,17 @@ class _ControlScreenState extends State<ControlScreen> {
 
     final loadedUsers = usersJson.map((userStr) {
       final userMap = jsonDecode(userStr);
-      return UserProfile.fromJson(userMap);
+      final user = UserProfile.fromJson(userMap);
+      // userId가 없는 구버전 데이터 호환성 처리
+      if (user.userId == null) {
+        return UserProfile(
+          name: user.name,
+          avatarUrl: user.avatarUrl,
+          imagePath: user.imagePath,
+          userId: 'user_${user.name.toLowerCase().replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}',
+        );
+      }
+      return user;
     }).toList();
 
     setState(() {
@@ -103,6 +115,7 @@ class _ControlScreenState extends State<ControlScreen> {
       context,
       MaterialPageRoute(builder: (context) => const UserRegistrationScreen()),
     );
+    
     if (result != null && result['action'] == 'register') {
       final generatedUserId = 'user_${DateTime.now().millisecondsSinceEpoch}';
       final payload = {
@@ -111,12 +124,12 @@ class _ControlScreenState extends State<ControlScreen> {
         'username': result['name']!,
         'image_base64': await ImageHelper.encodeImageToBase64(result['imagePath']),
         'timestamp': DateTime.now().toIso8601String(),
-        'selected_users': _getSelectedUsersList(),
       };
 
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('사용자를 등록 중입니다...'), duration: Duration(seconds: 10)));
 
       if (widget.connected && widget.onUserDataSendAwait != null) {
+        // ACK 대기
         final ack = await widget.onUserDataSendAwait!.call(payload);
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         
@@ -129,10 +142,10 @@ class _ControlScreenState extends State<ControlScreen> {
           await _saveUsers();
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('등록되었습니다.'), backgroundColor: Colors.green));
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 ACK를 받지 못했습니다.'), backgroundColor: Colors.red));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 ACK를 받지 못했습니다. 등록이 취소되었습니다.'), backgroundColor: Colors.red));
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 연결이 필요합니다.'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 연결이 필요합니다. 등록이 취소되었습니다.'), backgroundColor: Colors.red));
       }
     }
   }
@@ -151,12 +164,14 @@ class _ControlScreenState extends State<ControlScreen> {
 
     if (result != null) {
       if (result['action'] == 'register') {
+        // 수정 로직 (ACK 대기 없이 전송만 하거나 필요시 대기)
         final existingUser = users[index];
         final updatedUser = UserProfile(
             name: result['name']!,
             imagePath: result['imagePath'],
             userId: existingUser.userId,
             avatarUrl: existingUser.avatarUrl);
+            
         setState(() {
           users[index] = updatedUser;
           if (selectedUserIndices.contains(index)) _sendUserSelectionToBLE();
@@ -171,16 +186,15 @@ class _ControlScreenState extends State<ControlScreen> {
             'username': result['name']!,
             'image_base64': base64Image,
             'timestamp': DateTime.now().toIso8601String(),
-            'selected_users': _getSelectedUsersList(),
           });
         }
       } else if (result['action'] == 'delete') {
+        // 삭제 로직
         final userToDelete = users[index];
         final payload = {
           'action': 'user_delete',
           'user_id': userToDelete.userId,
           'timestamp': DateTime.now().toIso8601String(),
-          'selected_users': _getSelectedUsersList(),
         };
 
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('삭제 중...'), duration: Duration(seconds: 5)));
@@ -188,14 +202,15 @@ class _ControlScreenState extends State<ControlScreen> {
         if (widget.connected && widget.onUserDataSendAwait != null) {
           final ack = await widget.onUserDataSendAwait!.call(payload);
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          
           if (ack) {
             _deleteUser(index);
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('삭제되었습니다.'), backgroundColor: Colors.green));
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 ACK를 받지 못했습니다.'), backgroundColor: Colors.red));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 ACK를 받지 못했습니다. 삭제가 취소되었습니다.'), backgroundColor: Colors.red));
           }
         } else {
-           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 연결이 필요합니다.'), backgroundColor: Colors.red));
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 연결이 필요합니다. 삭제가 취소되었습니다.'), backgroundColor: Colors.red));
         }
       }
     }
@@ -205,6 +220,8 @@ class _ControlScreenState extends State<ControlScreen> {
     setState(() {
       if (selectedUserIndices.contains(index)) selectedUserIndices.remove(index);
       users.removeAt(index);
+      
+      // 인덱스 재정렬 (삭제된 인덱스 뒤의 선택된 인덱스들 당기기)
       selectedUserIndices = selectedUserIndices
           .map((idx) => idx > index ? idx - 1 : idx)
           .where((idx) => idx >= 0 && idx < users.length)
@@ -224,7 +241,28 @@ class _ControlScreenState extends State<ControlScreen> {
         selectedUserIndices.sort();
       } else {
         if (selectedUserIndices.length >= 2) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('최대 2명까지만 선택 가능합니다'), backgroundColor: Colors.red));
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content: Row(
+                    children: const [
+                      Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '최대 2명까지만 선택 가능합니다',
+                          style: TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: const Color(0xFFFF5252),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  duration: const Duration(seconds: 2)
+              )
+          );
           return;
         }
         selectedUserIndices.add(index);
@@ -264,7 +302,7 @@ class _ControlScreenState extends State<ControlScreen> {
         'user_list': selectedUsers,
         'timestamp': DateTime.now().toIso8601String(),
       });
-      // 자동 모드 변경 로직 삭제됨 (기존 유지)
+      // 모드 자동 변경 로직은 삭제됨 (요청사항 반영)
     }
   }
 
@@ -283,19 +321,32 @@ class _ControlScreenState extends State<ControlScreen> {
               userImagePath: null,
             ),
             const SizedBox(height: 10),
+
             _buildSelectionHeader(),
+
             const SizedBox(height: 10),
+
             Expanded(
               child: GridView.builder(
                 padding: const EdgeInsets.all(20),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 16, mainAxisSpacing: 16, childAspectRatio: 0.8),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 0.8,
+                ),
                 itemCount: users.length + 1,
                 itemBuilder: (context, index) {
                   if (index == 0) return _buildAddUserCard();
+
                   final userIndex = index - 1;
                   final user = users[userIndex];
                   final isSelected = selectedUserIndices.contains(userIndex);
-                  final selectionOrder = isSelected ? selectedUserIndices.indexOf(userIndex) + 1 : null;
+
+                  final selectionOrder = isSelected
+                      ? selectedUserIndices.indexOf(userIndex) + 1
+                      : null;
+
                   return _UserGridCard(
                     user: user,
                     isSelected: isSelected,
@@ -318,14 +369,59 @@ class _ControlScreenState extends State<ControlScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       child: Row(
         children: [
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-             const Text("Tracking Targets", style: TextStyle(fontFamily: 'Sen', fontSize: 20, fontWeight: FontWeight.w800, color: textMain)),
-             const SizedBox(height: 4),
-             Text(selectedUserIndices.isEmpty ? "Select up to 2 targets" : "${selectedUserIndices.length} active", style: TextStyle(fontFamily: 'Sen', fontSize: 14, color: selectedUserIndices.isEmpty ? textSub : colorUser1, fontWeight: FontWeight.w600)),
-          ]),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Tracking Targets",
+                style: TextStyle(
+                  fontFamily: 'Sen',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: textMain,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                selectedUserIndices.isEmpty
+                    ? "Select up to 2 targets"
+                    : "${selectedUserIndices.length} active",
+                style: TextStyle(
+                  fontFamily: 'Sen',
+                  fontSize: 14,
+                  color: selectedUserIndices.isEmpty
+                      ? textSub
+                      : colorUser1,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
           const Spacer(),
           if (selectedUserIndices.isNotEmpty)
-            TextButton.icon(onPressed: _clearAllSelections, icon: const Icon(Icons.refresh_rounded, size: 16, color: textSub), label: const Text("Reset", style: TextStyle(fontFamily: 'Sen', color: textSub, fontWeight: FontWeight.w600, fontSize: 13)), style: TextButton.styleFrom(backgroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30), side: BorderSide(color: Colors.grey.withOpacity(0.2))), elevation: 0))
+            TextButton.icon(
+              onPressed: _clearAllSelections,
+              icon: const Icon(Icons.refresh_rounded, size: 16, color: textSub),
+              label: const Text(
+                "Reset",
+                style: TextStyle(
+                    fontFamily: 'Sen',
+                    color: textSub,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13
+                ),
+              ),
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                    side: BorderSide(color: Colors.grey.withOpacity(0.2))
+                ),
+                elevation: 0,
+              ),
+            )
         ],
       ),
     );
@@ -335,12 +431,38 @@ class _ControlScreenState extends State<ControlScreen> {
     return GestureDetector(
       onTap: _addUser,
       child: Container(
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), border: Border.all(color: const Color(0xFFE2E8F0), width: 2)),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-           Container(width: 56, height: 56, decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle), child: const Icon(Icons.add_rounded, color: Color(0xFF94A3B8), size: 28)),
-           const SizedBox(height: 12),
-           const Text("Add New", style: TextStyle(fontFamily: 'Sen', fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))),
-        ]),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: const Color(0xFFE2E8F0),
+            width: 2,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF1F5F9),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.add_rounded, color: Color(0xFF94A3B8), size: 28),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "Add New",
+              style: TextStyle(
+                fontFamily: 'Sen',
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -351,7 +473,9 @@ class UserProfile {
   final String? avatarUrl;
   final String? imagePath;
   final String? userId;
+
   UserProfile({required this.name, this.avatarUrl, this.imagePath, this.userId});
+
   Map<String, dynamic> toJson() => {'name': name, 'avatarUrl': avatarUrl, 'imagePath': imagePath, 'userId': userId};
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(name: json['name'], avatarUrl: json['avatarUrl'], imagePath: json['imagePath'], userId: json['userId']);
 }
@@ -364,7 +488,14 @@ class _UserGridCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onEdit;
 
-  const _UserGridCard({required this.user, required this.isSelected, this.selectionOrder, required this.activeColor, required this.onTap, required this.onEdit});
+  const _UserGridCard({
+    required this.user,
+    required this.isSelected,
+    this.selectionOrder,
+    required this.activeColor,
+    required this.onTap,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -376,20 +507,138 @@ class _UserGridCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: isSelected ? activeColor : Colors.transparent, width: isSelected ? 2.5 : 0),
-          boxShadow: [isSelected ? BoxShadow(color: activeColor.withOpacity(0.25), blurRadius: 16, offset: const Offset(0, 8)) : BoxShadow(color: const Color(0xFFCBD5E1).withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
+          border: Border.all(
+              color: isSelected ? activeColor : Colors.transparent,
+              width: isSelected ? 2.5 : 0
+          ),
+          boxShadow: [
+            if (isSelected)
+              BoxShadow(
+                color: activeColor.withOpacity(0.25),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              )
+            else
+              BoxShadow(
+                color: const Color(0xFFCBD5E1).withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+          ],
         ),
-        child: Stack(children: [
-           Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-             Center(child: AnimatedContainer(duration: const Duration(milliseconds: 200), width: isSelected ? 76 : 72, height: isSelected ? 76 : 72, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: isSelected ? activeColor.withOpacity(0.2) : Colors.transparent, width: isSelected ? 4 : 0)), child: Container(decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFFF8FAFC), image: user.imagePath != null ? DecorationImage(image: FileImage(File(user.imagePath!)), fit: BoxFit.cover) : null), child: user.imagePath == null ? Icon(Icons.person, size: 32, color: Colors.grey[300]) : null))),
-             const SizedBox(height: 16),
-             Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text(user.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: 'Sen', fontSize: 16, color: isSelected ? activeColor : const Color(0xFF1E293B), fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600))),
-             const SizedBox(height: 4),
-             Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: isSelected ? activeColor.withOpacity(0.1) : Colors.transparent, borderRadius: BorderRadius.circular(4)), child: Text(isSelected ? "Tracking Active" : "Tab to select", style: TextStyle(fontFamily: 'Sen', fontSize: 11, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400, color: isSelected ? activeColor : const Color(0xFF94A3B8))))
-           ]),
-           Positioned(top: 10, right: 10, child: GestureDetector(onTap: onEdit, child: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle), child: const Icon(Icons.more_horiz_rounded, size: 16, color: Color(0xFF64748B))))),
-           if (isSelected && selectionOrder != null) Positioned(top: 10, left: 10, child: Container(width: 26, height: 26, decoration: BoxDecoration(color: activeColor, shape: BoxShape.circle, boxShadow: [BoxShadow(color: activeColor.withOpacity(0.4), blurRadius: 4, offset: const Offset(0, 2))], border: Border.all(color: Colors.white, width: 2)), alignment: Alignment.center, child: Text("$selectionOrder", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12, fontFamily: 'Sen'))))
-        ]),
+        child: Stack(
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Center(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: isSelected ? 76 : 72,
+                    height: isSelected ? 76 : 72,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isSelected ? activeColor.withOpacity(0.2) : Colors.transparent,
+                        width: isSelected ? 4 : 0,
+                      ),
+                    ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(0xFFF8FAFC),
+                          image: user.imagePath != null
+                              ? DecorationImage(image: FileImage(File(user.imagePath!)), fit: BoxFit.cover)
+                              : null
+                      ),
+                      child: user.imagePath == null
+                          ? Icon(Icons.person, size: 32, color: Colors.grey[300])
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    user.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Sen',
+                      fontSize: 16,
+                      color: isSelected ? activeColor : const Color(0xFF1E293B),
+                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isSelected ? activeColor.withOpacity(0.1) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    isSelected ? "Tracking Active" : "Tab to select",
+                    style: TextStyle(
+                      fontFamily: 'Sen',
+                      fontSize: 11,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                      color: isSelected ? activeColor : const Color(0xFF94A3B8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: GestureDetector(
+                onTap: onEdit,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF1F5F9),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.more_horiz_rounded, size: 16, color: Color(0xFF64748B)),
+                ),
+              ),
+            ),
+            if (isSelected && selectionOrder != null)
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    color: activeColor,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: activeColor.withOpacity(0.4),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      )
+                    ],
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    "$selectionOrder",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      fontFamily: 'Sen',
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

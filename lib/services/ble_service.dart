@@ -37,8 +37,9 @@ class BleService {
   final _dataStreamController = StreamController<Map<String, dynamic>>.broadcast();
   final _logController = StreamController<String>.broadcast();
   
-  // ACK 대기용 Completer (성공 시 Map 반환, 실패 시 null)
+  // ACK 대기용 Completer
   final Map<String, Completer<Map<String, dynamic>?>> _pendingAcks = {};
+  
   final List<String> _chunkBuffer = [];
   StreamSubscription? _deviceStateSubscription;
   Timer? _reconnectTimer;
@@ -49,8 +50,6 @@ class BleService {
   BleConnectionState get currentState => _connectionStateController.value;
 
   /// 데이터를 보내고 ACK(전체 데이터)를 기다림
-  /// 성공 시: 서버가 보낸 JSON Map 반환 (end_time 등 포함)
-  /// 실패 시: null 반환
   Future<Map<String, dynamic>?> sendRequestWithAck(Map<String, dynamic> data,
       {String ackKeyField = 'user_id', Duration timeout = const Duration(seconds: 5)}) async {
     
@@ -109,7 +108,8 @@ class BleService {
     }
 
     _updateState(BleConnectionState.scanning);
-    
+    _log('${BleConstants.DEVICE_NAME_PREFIX} 디바이스 스캔 시작...');
+
     return FlutterBluePlus.scanResults.map((results) {
       return results.where((r) {
         final name = r.device.platformName.isNotEmpty
@@ -143,6 +143,8 @@ class BleService {
     stopScan();
 
     try {
+      _log('${device.platformName}에 연결 시도 중...');
+
       await device.connect(
         timeout: const Duration(seconds: 15),
         autoConnect: false,
@@ -156,11 +158,14 @@ class BleService {
 
       _deviceStateSubscription?.cancel();
       _deviceStateSubscription = device.connectionState.listen((state) {
+        _log('📡 기기 연결 상태 변경: $state');
+
         if (state == BluetoothConnectionState.connected) {
           if (currentState != BleConnectionState.connected) {
             _updateState(BleConnectionState.connected);
           }
         } else if (state == BluetoothConnectionState.disconnected) {
+          _log('⚠️ 기기와의 연결이 끊어졌습니다.');
           _handleDisconnection();
         }
       });
@@ -168,6 +173,7 @@ class BleService {
       await _discoverServices(device);
 
       _updateState(BleConnectionState.connected);
+      _log('✅ 연결 성공.');
 
     } catch (e) {
       _log('❌ 연결 실패: $e');
@@ -192,8 +198,14 @@ class BleService {
   }
 
   Future<void> sendJson(Map<String, dynamic> data) async {
-    if (currentState != BleConnectionState.connected) return;
-    if (_connectedDevice == null || _writeCharacteristic == null) return;
+    if (currentState != BleConnectionState.connected) {
+      _log('⚠️ 전송 차단됨: 연결 안됨');
+      return;
+    }
+    if (_connectedDevice == null || _writeCharacteristic == null) {
+      _log('⚠️ 전송 차단됨: Characteristic 초기화 실패');
+      return;
+    }
 
     try {
       final jsonStr = json.encode(data);
@@ -228,9 +240,11 @@ class BleService {
     _chunkBuffer.clear();
     _reconnectTimer?.cancel();
     _updateState(BleConnectionState.disconnected);
+    _log('🔌 연결이 해제되었습니다.');
   }
 
   Future<void> _discoverServices(BluetoothDevice device) async {
+    _log('🔍 서비스 탐색 중...');
     final services = await device.discoverServices();
     final targetService = services.firstWhere(
           (s) => s.uuid == Guid(BleConstants.SERVICE_UUID),
@@ -243,8 +257,10 @@ class BleService {
     for (var char in targetService.characteristics) {
       if (char.uuid == Guid(BleConstants.WRITE_CHAR_UUID)) {
         _writeCharacteristic = char;
+        _log('✅ Write Characteristic 발견');
       } else if (char.uuid == Guid(BleConstants.NOTIFY_CHAR_UUID)) {
         _notifyCharacteristic = char;
+        _log('✅ Notify Characteristic 발견');
         await char.setNotifyValue(true);
         char.lastValueStream.listen(_onDataReceived);
       }
@@ -264,10 +280,13 @@ class BleService {
         return;
       }
 
-      final jsonMap = json.decode(str);
+      final dynamic decoded = json.decode(str);
 
-      // ACK 처리 로직
-      if (jsonMap is Map) {
+      // ACK 처리 로직 수정
+      if (decoded is Map) {
+        // dynamic Map을 String Key Map으로 변환
+        final Map<String, dynamic> jsonMap = Map<String, dynamic>.from(decoded);
+
         try {
           final typeVal = jsonMap['type'];
           final ackFlag = jsonMap['ack'];
@@ -281,17 +300,17 @@ class BleService {
             final completer = _pendingAcks.remove(ackKey);
             if (completer != null && !completer.isCompleted) {
               final bool success = jsonMap['success'] ?? true;
-              // 성공이면 데이터 전체 반환, 실패면 null
+              // [수정된 부분] 성공 시 jsonMap 전체 반환 (타입 캐스팅)
               completer.complete(success ? jsonMap : null);
             }
           }
         } catch (e) {
-          // ACK 파싱 에러 무시
+           // ACK 파싱 무시
         }
-      }
-
-      if (_dataStreamController.hasListener) {
-        _dataStreamController.add(jsonMap);
+        
+        if (_dataStreamController.hasListener) {
+          _dataStreamController.add(jsonMap);
+        }
       }
       _log('📥 수신: $str');
     } catch (e) {
