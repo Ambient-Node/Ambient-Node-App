@@ -171,7 +171,7 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
         children: [
           AppTopBar(
             deviceName: widget.connected ? widget.deviceName : "Ambient",
-            subtitle: widget.selectedUserName != null ? '${widget.selectedUserName}님' : "Dashboard",
+            subtitle: widget.selectedUserName != null ? '${widget.selectedUserName}님' : "대시보드",
             connected: widget.connected,
             onConnectToggle: widget.onConnect,
             userImagePath: widget.selectedUserImagePath,

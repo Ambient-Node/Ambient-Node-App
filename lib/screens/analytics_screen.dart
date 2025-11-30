@@ -76,7 +76,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               child: Row(
                 children: [
                   const Text(
-                    "Insight",
+                    "인사이트",
                     style: TextStyle(
                       fontFamily: 'Sen',
                       fontSize: 28,
@@ -118,8 +118,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       child: Row(
         children: [
-          _buildSegmentBtn("Daily", !_isWeekly),
-          _buildSegmentBtn("Weekly", _isWeekly),
+          _buildSegmentBtn("일간", !_isWeekly),
+          _buildSegmentBtn("주간", _isWeekly),
         ],
       ),
     );
@@ -629,7 +629,7 @@ class FadeInSlide extends StatelessWidget {
       builder: (context, value, child) {
         return Transform.translate(
           offset: Offset(0, 20 * (1 - value)),
-          child: Opacity(opacity: value, child: child),
+          child: Opacity(opacity: value,child: child),
         );
       },
       child: child,

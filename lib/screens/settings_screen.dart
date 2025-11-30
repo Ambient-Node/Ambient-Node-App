@@ -119,7 +119,7 @@ class SettingsScreen extends StatelessWidget {
                   _buildSectionHeader("앱 정보"),
                   const SizedBox(height: 12),
 
-                  _buildInfoTile("버전", "1.0.0 (Build 24)"),
+                  _buildInfoTile("버전", "v1.0.0 (beta)"),
                   const SizedBox(height: 12),
                   _buildInfoTile("개발자", "Ambient Node Team"),
                 ],

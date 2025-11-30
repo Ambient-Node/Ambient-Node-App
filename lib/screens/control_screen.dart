@@ -290,7 +290,7 @@ class _UserScreenState extends State<UserScreen> {
           children: [
             AppTopBar(
               deviceName: widget.deviceName,
-              subtitle: 'User Management',
+              subtitle: '사용자 관리',
               connected: widget.connected,
               onConnectToggle: widget.onConnect,
               userImagePath: null,
@@ -348,7 +348,7 @@ class _UserScreenState extends State<UserScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "Tracking Targets",
+                "AI 추적 타겟",
                 style: TextStyle(
                   fontFamily: 'Sen',
                   fontSize: 20,
@@ -360,7 +360,7 @@ class _UserScreenState extends State<UserScreen> {
               const SizedBox(height: 4),
               Text(
                 selectedUserIndices.isEmpty
-                    ? "Select up to 2 targets"
+                    ? "2명까지 선택이 가능합니다"
                     : "${selectedUserIndices.length} active",
                 style: TextStyle(
                   fontFamily: 'Sen',
@@ -428,7 +428,7 @@ class _UserScreenState extends State<UserScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              "Add New",
+              "사용자 추가",
               style: TextStyle(
                 fontFamily: 'Sen',
                 fontSize: 15,
@@ -555,7 +555,7 @@ class _UserGridCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    isSelected ? "Tracking Active" : "Tab to select",
+                    isSelected ? "선택됨" : "탭하면 선택됩니다",
                     style: TextStyle(
                       fontFamily: 'Sen',
                       fontSize: 11,
