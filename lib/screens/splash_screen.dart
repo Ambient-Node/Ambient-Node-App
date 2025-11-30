@@ -74,7 +74,7 @@ class _SplashScreenState extends State<SplashScreen>
                     ],
                   ),
                   child: Image.asset(
-                    'assets/images/fan_logo.png', // ⚠️ 여기에 이미지 경로 설정
+                    'assets/images/fan_logo-removebg.png', // ⚠️ 여기에 이미지 경로 설정
                     fit: BoxFit.contain,
                   ),
                 ),

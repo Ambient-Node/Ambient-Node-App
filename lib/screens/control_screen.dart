@@ -19,11 +19,8 @@ class ControlScreen extends StatefulWidget {
 
   final Function(Map<String, dynamic>)? onUserDataSend;
   
-  // [필수] ACK 대기용 함수 (Bool 반환)
   final Future<bool> Function(Map<String, dynamic>)? onUserDataSendAwait;
-  
   final Stream<Map<String, dynamic>>? dataStream;
-
   const ControlScreen({
     super.key,
     required this.connected,
@@ -45,6 +42,7 @@ class _ControlScreenState extends State<ControlScreen> {
   int? selectedUserIndex;
   List<int> selectedUserIndices = [];
   StreamSubscription? _dataSubscription;
+  String? _selectedUserImagePath;
 
   static const Color bgLight = Color(0xFFF8FAFC);
   static const Color textMain = Color(0xFF1E293B);
@@ -277,8 +275,14 @@ class _ControlScreenState extends State<ControlScreen> {
     selectedUserIndex = selectedUserIndices.isNotEmpty ? selectedUserIndices[0] : null;
     if (selectedUserIndices.isNotEmpty) {
       final firstUser = users[selectedUserIndices[0]];
+      setState(() {
+        _selectedUserImagePath = firstUser.imagePath;
+      });
       widget.onUserSelectionChanged(firstUser.userId, firstUser.name, firstUser.imagePath);
     } else {
+      setState(() {
+        _selectedUserImagePath = null;
+      });
       widget.onUserSelectionChanged(null, null, null);
     }
   }
@@ -286,6 +290,7 @@ class _ControlScreenState extends State<ControlScreen> {
   void _clearAllSelections() {
     setState(() {
       selectedUserIndices.clear();
+      _selectedUserImagePath = null;
       _updateMainSelectionState();
     });
     _sendUserSelectionToBLE();
@@ -315,10 +320,10 @@ class _ControlScreenState extends State<ControlScreen> {
           children: [
             AppTopBar(
               deviceName: widget.deviceName,
-              subtitle: 'User Management',
+              subtitle: '유저 선택',
               connected: widget.connected,
               onConnectToggle: widget.onConnect,
-              userImagePath: null,
+              userImagePath: _selectedUserImagePath,
             ),
             const SizedBox(height: 10),
 
@@ -373,7 +378,7 @@ class _ControlScreenState extends State<ControlScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "Tracking Targets",
+                "AI 트래킹 타겟",
                 style: TextStyle(
                   fontFamily: 'Sen',
                   fontSize: 20,
@@ -385,8 +390,8 @@ class _ControlScreenState extends State<ControlScreen> {
               const SizedBox(height: 4),
               Text(
                 selectedUserIndices.isEmpty
-                    ? "Select up to 2 targets"
-                    : "${selectedUserIndices.length} active",
+                    ? "최대 두 명까지 선택 가능합니다."
+                    : "${selectedUserIndices.length} 선택 중",
                 style: TextStyle(
                   fontFamily: 'Sen',
                   fontSize: 14,
@@ -404,7 +409,7 @@ class _ControlScreenState extends State<ControlScreen> {
               onPressed: _clearAllSelections,
               icon: const Icon(Icons.refresh_rounded, size: 16, color: textSub),
               label: const Text(
-                "Reset",
+                "선택 초기화",
                 style: TextStyle(
                     fontFamily: 'Sen',
                     color: textSub,
@@ -453,7 +458,7 @@ class _ControlScreenState extends State<ControlScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              "Add New",
+              "사용자 추가",
               style: TextStyle(
                 fontFamily: 'Sen',
                 fontSize: 15,
@@ -580,7 +585,7 @@ class _UserGridCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    isSelected ? "Tracking Active" : "Tab to select",
+                    isSelected ? "활성 중" : "탭하여 선택하세요",
                     style: TextStyle(
                       fontFamily: 'Sen',
                       fontSize: 11,
