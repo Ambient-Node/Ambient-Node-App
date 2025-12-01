@@ -86,6 +86,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                   const Spacer(),
                   _buildSegmentedControl(),
+                  const SizedBox(width: 8),
+                  // 개발용: 선택된 사용자에 대해 더미 데이터 시드
+                  IconButton(
+                    tooltip: 'Seed Test Data',
+                    onPressed: () async {
+                      if (widget.selectedUserName == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('사용자를 선택하세요')));
+                        return;
+                      }
+                      await AnalyticsService.seedAnalyticsForUser(widget.selectedUserName!);
+                      await _loadAnalytics();
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('샘플 분석 데이터가 로드되었습니다')));
+                    },
+                    icon: const Icon(Icons.bolt_rounded, color: Colors.black54),
+                  ),
                 ],
               ),
             ),
