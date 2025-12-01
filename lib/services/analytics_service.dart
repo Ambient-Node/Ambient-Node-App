@@ -66,18 +66,15 @@ class AnalyticsService {
     await _endCurrentFanSession();
   }
 
-  /// 속도 변경
   static void onSpeedChanged(int newSpeed) {
     if (_currentUser == null) return;
 
     if (newSpeed > 0) {
-      // 속도가 있으면 세션 시작 또는 업데이트
       if (_currentFanSession == null) {
         onFanPowerOn(newSpeed).catchError((e) {
           print('❌ onFanPowerOn 오류: $e');
         });
       } else {
-        // 현재 세션의 속도 업데이트
         _currentFanSession = FanSession(
           startTime: _currentFanSession!.startTime,
           endTime: DateTime.now(),
@@ -85,14 +82,12 @@ class AnalyticsService {
         );
       }
     } else {
-      // 속도가 0이면 세션 종료
       onFanPowerOff().catchError((e) {
         print('❌ onFanPowerOff 오류: $e');
       });
     }
   }
 
-  /// 수동 제어 기록
   static void onManualControl(String direction, int? speed) {
     if (_currentUser == null) return;
 
@@ -102,7 +97,6 @@ class AnalyticsService {
       speed: speed,
     );
 
-    // 비동기로 처리하되 결과를 기다리지 않음
     getUserAnalytics(_currentUser!).then((analytics) {
       final userAnalytics = analytics ?? UserAnalytics(username: _currentUser!);
       final updatedAnalytics = userAnalytics.copyWith(
@@ -114,7 +108,6 @@ class AnalyticsService {
     });
   }
 
-  /// 얼굴 추적 시작
   static void onFaceTrackingStart() {
     if (_currentUser == null) return;
 
@@ -128,14 +121,12 @@ class AnalyticsService {
     );
   }
 
-  /// 얼굴 추적 종료
   static void onFaceTrackingStop() {
     _endCurrentFaceTrackingSession().catchError((e) {
       print('❌ _endCurrentFaceTrackingSession 오류: $e');
     });
   }
 
-  /// 현재 팬 세션 종료
   static Future<void> _endCurrentFanSession() async {
     if (_currentUser == null || _currentFanSession == null) return;
 
@@ -355,14 +346,10 @@ class AnalyticsService {
     print('   - 얼굴 추적: ${testFaceTrackingSessions.length}회');
   }
 
-  /// 간단한 이름의 래퍼: UI에서 호출하는 `seedAnalyticsForUser`가 없을 경우 대비
   static Future<void> seedAnalyticsForUser(String username) async {
-    // For now use the richer generator; keep wrapper for API stability
     await generateTestData(username);
   }
 
-  /// Generate simple, human-readable insights for a given user.
-  /// Returns a list of short Korean sentences describing behavior.
   static Future<List<String>> generateInsights(String username, {bool weekly = false}) async {
     final analytics = await getUserAnalytics(username);
     if (analytics == null) return ['데이터가 없습니다. 먼저 샘플 데이터를 시드하거나 사용 기록이 있어야 합니다.'];
@@ -371,12 +358,10 @@ class AnalyticsService {
     DateTime? periodStart;
     DateTime? periodEnd;
     if (weekly) {
-      // align to week start (Monday)
       final weekStart = now.subtract(Duration(days: now.weekday - 1));
       periodStart = DateTime(weekStart.year, weekStart.month, weekStart.day);
       periodEnd = periodStart.add(const Duration(days: 7));
     } else {
-      // single day (today)
       periodStart = DateTime(now.year, now.month, now.day);
       periodEnd = periodStart.add(const Duration(days: 1));
     }
@@ -393,7 +378,6 @@ class AnalyticsService {
       map[hour] = (map[hour] ?? 0) + 1;
     }
 
-    // Fan sessions: consider sessions whose startTime is inside period
     for (final s in analytics.fanSessions) {
       if (!inPeriod(s.startTime)) continue;
       final start = s.startTime;
@@ -432,25 +416,25 @@ class AnalyticsService {
 
     final topHour = _topHour(hourCounts);
     if (topHour != null) {
-      sentences.add('$periodLabel 주로 ${topHour}시경에 선풍기를 많이 사용합니다.');
+      sentences.add('$periodLabel 주로 ${topHour}시경에 선풍기를 많이 사용했어요.');
     }
 
     final topManualHour = _topHour(manualHourCounts);
     final topDirection = _topKey(directionCounts);
     if (topManualHour != null && topDirection != null) {
-      sentences.add('$periodLabel ${topManualHour}시에 수동으로 조작하는 경우가 많고, 주로 "$topDirection" 방향을 사용합니다.');
+      sentences.add('$periodLabel ${topManualHour}시에 수동으로 조작하는 경우가 많고, 주로 "$topDirection" 방향을 사용하시네요.');
     } else if (topManualHour != null) {
       sentences.add('$periodLabel ${topManualHour}시에 수동 조작이 많이 발생합니다.');
     }
 
     final topSpeed = _topKey(speedCounts);
     if (topSpeed != null) {
-      sentences.add('$periodLabel 가장 선호하는 풍속은 Lv.$topSpeed 입니다.');
+      sentences.add('$periodLabel 가장 선호하시는 풍속은 Lv.$topSpeed 네요!');
     }
 
     final topFaceHour = _topHour(faceHourCounts);
     if (topFaceHour != null) {
-      sentences.add('$periodLabel 얼굴 추적은 ${topFaceHour}시에 활성화되는 경향이 있습니다.');
+      sentences.add('$periodLabel 얼굴 추적은 ${topFaceHour}시에 활성화되는 경향이 있어요.');
     }
 
     if (sentences.isEmpty) sentences.add('분석할 충분한 데이터가 없습니다.');

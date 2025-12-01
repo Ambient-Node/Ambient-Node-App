@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/user_analytics.dart';
 import '../services/analytics_service.dart';
+import '../services/mqtt_service.dart';
+import 'dart:async';
 import '../utils/snackbar_helper.dart';
 
 class AnalyticsScreen extends StatefulWidget {
@@ -20,11 +22,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _isWeekly = false;
   AnalyticsData? _analyticsData;
   List<String>? _insights;
+  double? _naturalWindMinutes;
+  StreamSubscription<Map<String, dynamic>>? _mqttSub;
   bool _isLoading = true;
-
-  // PageController for horizontal insight cards
-  final PageController _pageController = PageController(viewportFraction: 0.9);
-  int _currentPage = 0;
 
   static const Color primaryBlue = Color(0xFF3A91FF);
   static const Color textDark = Color(0xFF2D3142);
@@ -35,11 +35,44 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   void initState() {
     super.initState();
     _loadAnalytics();
+    // Initialize MQTT and subscribe to stats responses
+    () async {
+      try {
+        await MqttService().initialize();
+        MqttService().subscribe('ambient/stats/response');
+        _mqttSub = MqttService().messages.listen((msg) {
+          try {
+            final topic = msg['__topic'] as String?;
+            if (topic != 'ambient/stats/response') return;
+
+            // Find the first list-like field that looks like the stats array
+            List<dynamic>? dataList;
+            for (final v in msg.values) {
+              if (v is List) {
+                if (v.isNotEmpty && v.first is Map && (v.first as Map).containsKey('mode')) {
+                  dataList = v;
+                  break;
+                }
+              }
+            }
+
+            if (dataList == null) return;
+
+            final natural = dataList.firstWhere((e) => e is Map && e['mode'] == 'natural_wind', orElse: () => null);
+            double minutes = 0.0;
+            if (natural != null && natural is Map && natural['minutes'] != null) {
+              minutes = (natural['minutes'] is num) ? (natural['minutes'] as num).toDouble() : double.tryParse(natural['minutes'].toString()) ?? 0.0;
+            }
+            if (mounted) setState(() => _naturalWindMinutes = minutes);
+          } catch (_) {}
+        });
+      } catch (_) {}
+    }();
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _mqttSub?.cancel();
     super.dispose();
   }
 
@@ -71,13 +104,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _isLoading = false;
         });
       }
-      
+      // load insights separately (non-blocking for charts)
       try {
         final insights = await AnalyticsService.generateInsights(widget.selectedUserName!, weekly: _isWeekly);
         if (mounted) setState(() => _insights = insights);
       } catch (_) {
         if (mounted) setState(() => _insights = ['인사이트를 생성할 수 없습니다.']);
       }
+      // 요청: 외부 통계(MQTT)를 통해 mode_usage 요청
+      try {
+        final period = _isWeekly ? 'week' : 'day';
+        MqttService().publish('ambient/stats/request', {
+          'type': 'mode_usage',
+          'period': period,
+          'user_id': widget.selectedUserName!
+        });
+      } catch (_) {}
     } catch (e) {
       if (mounted) setState(() { _analyticsData = null; _isLoading = false; });
     }
@@ -106,6 +148,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   const Spacer(),
                   _buildSegmentedControl(),
                   const SizedBox(width: 8),
+                  // 개발용: 선택된 사용자에 대해 더미 데이터 시드
                   IconButton(
                     tooltip: 'Seed Test Data',
                     onPressed: () async {
@@ -138,7 +181,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  // ... (SegmentedControl 등 기존 위젯 유지) ...
   Widget _buildSegmentedControl() {
     return Container(
       height: 40,
@@ -188,135 +230,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  // [신규] 가로 스크롤 가능한 고급 인사이트 카드 섹션
-  Widget _buildInsightCarousel(List<String>? insights) {
-    if (insights == null || insights.isEmpty) {
-      return _buildSingleInsightCard(
-        text: "데이터가 충분하지 않아 인사이트를 분석할 수 없습니다.",
-        icon: Icons.analytics_outlined,
-        color: Colors.grey,
-      );
-    }
-
-    return Column(
-      children: [
-        SizedBox(
-          height: 140, // 카드 높이
-          child: PageView.builder(
-            controller: _pageController,
-            onPageChanged: (idx) => setState(() => _currentPage = idx),
-            itemCount: insights.length,
-            itemBuilder: (context, index) {
-              final text = insights[index];
-              // 텍스트 내용에 따라 아이콘/색상 자동 매칭
-              IconData icon = Icons.lightbulb_outline;
-              Color color = const Color(0xFF6366F1); // Default Indigo
-
-              if (text.contains("풍속")) {
-                icon = Icons.wind_power_rounded;
-                color = const Color(0xFF00C896); // Green
-              } else if (text.contains("수동") || text.contains("조작")) {
-                icon = Icons.touch_app_rounded;
-                color = const Color(0xFFFF7F50); // Orange
-              } else if (text.contains("시간") || text.contains("시경")) {
-                icon = Icons.access_time_filled_rounded;
-                color = const Color(0xFF3A91FF); // Blue
-              } else if (text.contains("얼굴")) {
-                icon = Icons.face_retouching_natural_rounded;
-                color = const Color(0xFF9C27B0); // Purple
-              }
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: _buildSingleInsightCard(text: text, icon: icon, color: color),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 12),
-        // 페이지 인디케이터
-        if (insights.length > 1)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(insights.length, (index) {
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                width: _currentPage == index ? 20 : 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: _currentPage == index ? primaryBlue : Colors.grey[300],
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              );
-            }),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildSingleInsightCard({required String text, required IconData icon, required Color color}) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: color.withOpacity(0.1), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: color, size: 28),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  "AI 분석 리포트",
-                  style: TextStyle(
-                    fontFamily: 'Sen',
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: color.withOpacity(0.8),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  text,
-                  style: const TextStyle(
-                    fontFamily: 'Sen',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: textDark,
-                    height: 1.4,
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBentoCard({
     required String title,
     required String value,
@@ -329,7 +242,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
@@ -368,6 +285,47 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  Widget _buildInsightCard(List<String>? insights) {
+    final displayed = (insights == null || insights.isEmpty) ? ['인사이트 없음'] : insights;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEFD5).withOpacity(0.6),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.lightbulb_outline, color: Color(0xFF8B5CF6), size: 22),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            displayed.first,
+            style: const TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.w800, color: textDark),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
+          if (displayed.length > 1)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: displayed.skip(1).take(2).map((s) => Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(s, style: const TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
+              )).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDashboardContent() {
     final data = _analyticsData!;
     final totalHours = data.totalUsageTime.inHours;
@@ -375,195 +333,223 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 40),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. 상단 요약 카드 (기존 유지)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: FadeInSlide(
-              delay: 0,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF3A91FF), Color(0xFF6B4DFF)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(color: const Color(0xFF3A91FF).withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 8)),
-                  ],
+          FadeInSlide(
+            delay: 0,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF3A91FF), Color(0xFF6B4DFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(3),
-                          decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white.withOpacity(0.3), width: 2)),
-                          child: CircleAvatar(
-                            radius: 20,
-                            backgroundColor: Colors.white.withOpacity(0.2),
-                            child: Text(
-                              widget.selectedUserName![0].toUpperCase(),
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(color: const Color(0xFF3A91FF).withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 8)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white.withOpacity(0.3), width: 2)),
+                        child: CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Colors.white.withOpacity(0.2),
+                          child: Text(
+                            widget.selectedUserName![0].toUpperCase(),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              widget.selectedUserName!,
-                              style: const TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                            ),
-                            Text(
-                              _isWeekly ? "이번 주 리포트" : "오늘의 리포트",
-                              style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: Colors.white.withOpacity(0.8)),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    const Text("Total Usage", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: Colors.white70)),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          "$totalHours",
-                          style: const TextStyle(fontFamily: 'Sen', fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white, height: 1.0),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.only(bottom: 6, left: 4, right: 8),
-                          child: Text("h", style: TextStyle(fontFamily: 'Sen', fontSize: 18, color: Colors.white70)),
-                        ),
-                        Text(
-                          "$totalMinutes",
-                          style: const TextStyle(fontFamily: 'Sen', fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white, height: 1.0),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.only(bottom: 6, left: 4),
-                          child: Text("m", style: TextStyle(fontFamily: 'Sen', fontSize: 18, color: Colors.white70)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.selectedUserName!,
+                            style: const TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                          Text(
+                            _isWeekly ? "이번 주 리포트" : "오늘의 리포트",
+                            style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: Colors.white.withOpacity(0.8)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Text("Total Usage", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: Colors.white70)),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        "$totalHours",
+                        style: const TextStyle(fontFamily: 'Sen', fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white, height: 1.0),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 6, left: 4, right: 8),
+                        child: Text("h", style: TextStyle(fontFamily: 'Sen', fontSize: 18, color: Colors.white70)),
+                      ),
+                      Text(
+                        "$totalMinutes",
+                        style: const TextStyle(fontFamily: 'Sen', fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white, height: 1.0),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 6, left: 4),
+                        child: Text("m", style: TextStyle(fontFamily: 'Sen', fontSize: 18, color: Colors.white70)),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
 
           const SizedBox(height: 24),
-
-          // [수정됨] 2. 가로 스크롤 인사이트 카드 (Carousel)
-          FadeInSlide(
-            delay: 100,
-            child: _buildInsightCarousel(_insights),
-          ),
-
-          const SizedBox(height: 24),
-
-          // 3. 통계 카드 그리드 (기존 유지)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: FadeInSlide(
-              delay: 200,
+          if (_naturalWindMinutes != null) FadeInSlide(
+            delay: 80,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+              ),
               child: Row(
                 children: [
-                  Expanded(
-                    child: _buildBentoCard(
-                      title: "수동 조작",
-                      value: "${data.manualControlCount}회",
-                      icon: Icons.touch_app_rounded,
-                      accentColor: const Color(0xFFFF7F50),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildBentoCard(
-                      title: "얼굴 추적",
-                      value: "${data.faceTrackingTime.inMinutes}m",
-                      icon: Icons.face_retouching_natural_rounded,
-                      accentColor: const Color(0xFF00C896),
-                    ),
-                  ),
+                  const Icon(Icons.grass_rounded, color: Color(0xFF3A91FF)),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text('자연풍 사용 시간: ${_naturalWindMinutes!.toStringAsFixed(1)}분', style: const TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.w700))),
                 ],
               ),
+            ),
+          ),
+
+          FadeInSlide(
+            delay: 100,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildBentoCard(
+                    title: "수동 조작",
+                    value: "${data.manualControlCount}회",
+                    icon: Icons.touch_app_rounded,
+                    accentColor: const Color(0xFFFF7F50),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildBentoCard(
+                    title: "얼굴 추적",
+                    value: "${data.faceTrackingTime.inMinutes}m",
+                    icon: Icons.face_retouching_natural_rounded,
+                    accentColor: const Color(0xFF00C896),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          FadeInSlide(
+            delay: 200,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildBentoCard(
+                    title: "평균 사용 풍속",
+                    value: "Lv.${_getAverageSpeed(data)}",
+                    icon: Icons.wind_power_rounded,
+                    accentColor: const Color(0xFF3A91FF),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildInsightCard(_insights),
+                ),
+              ],
             ),
           ),
 
           const SizedBox(height: 32),
 
-          // 4. 히스토리 차트 (기존 유지)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: FadeInSlide(
-              delay: 300,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("사용 히스토리", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
-                  const SizedBox(height: 16),
-                  Container(
-                    height: 220,
-                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-                    ),
-                    clipBehavior: Clip.hardEdge,
-                    child: _buildBarChart(data),
+          FadeInSlide(
+            delay: 300,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("사용 히스토리", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
+                const SizedBox(height: 16),
+
+                Container(
+                  height: 220,
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
                   ),
-                ],
-              ),
+                  clipBehavior: Clip.hardEdge,
+                  child: _buildBarChart(data),
+                ),
+              ],
             ),
           ),
 
           const SizedBox(height: 32),
 
-          // 5. 선호 풍속 차트 (기존 유지)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: FadeInSlide(
-              delay: 400,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("선호 풍속", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-                    ),
-                    child: Row(
-                      children: [
-                        SizedBox(height: 140, width: 140, child: _buildDonutChart(data)),
-                        const SizedBox(width: 24),
-                        Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: _buildSpeedLegend(data))),
-                      ],
-                    ),
+          FadeInSlide(
+            delay: 400,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("선호 풍속", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
                   ),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        height: 140,
+                        width: 140,
+                        child: _buildDonutChart(data),
+                      ),
+                      const SizedBox(width: 24),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: _buildSpeedLegend(data),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
+
+          const SizedBox(height: 40),
         ],
       ),
     );
   }
 
-  // ... (기존 _buildBarChart, _makeBarGroup, _buildDonutChart, _buildSpeedLegend, _buildEmptyState, _getAverageSpeed, _getSpeedColor 등 유지) ...
   Widget _buildBarChart(AnalyticsData data) {
     double maxDataValue = 0;
     if (_isWeekly) {
@@ -751,6 +737,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     ];
     return colors[speed.clamp(0, 5)];
   }
+
+  // 개발: 더 이상 사용하지 않는 함수 제거됨 (seed 버튼이 직접 호출함)
 }
 
 class FadeInSlide extends StatelessWidget {
