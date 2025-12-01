@@ -355,6 +355,12 @@ class AnalyticsService {
     print('   - 얼굴 추적: ${testFaceTrackingSessions.length}회');
   }
 
+  /// 간단한 이름의 래퍼: UI에서 호출하는 `seedAnalyticsForUser`가 없을 경우 대비
+  static Future<void> seedAnalyticsForUser(String username) async {
+    // For now use the richer generator; keep wrapper for API stability
+    await generateTestData(username);
+  }
+
   static DailyUsage _createDailyUsage(
       DateTime date, Duration usageTime, Map<int, Duration> speedBreakdown) {
     return DailyUsage(
