@@ -19,6 +19,7 @@ class AnalyticsScreen extends StatefulWidget {
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _isWeekly = false;
   AnalyticsData? _analyticsData;
+  List<String>? _insights;
   bool _isLoading = true;
 
   static const Color primaryBlue = Color(0xFF3A91FF);
@@ -59,6 +60,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _analyticsData = data;
           _isLoading = false;
         });
+      }
+      // load insights separately (non-blocking for charts)
+      try {
+        final insights = await AnalyticsService.generateInsights(widget.selectedUserName!, weekly: _isWeekly);
+        if (mounted) setState(() => _insights = insights);
+      } catch (_) {
+        if (mounted) setState(() => _insights = ['인사이트를 생성할 수 없습니다.']);
       }
     } catch (e) {
       if (mounted) setState(() { _analyticsData = null; _isLoading = false; });
@@ -225,6 +233,47 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  Widget _buildInsightCard(List<String>? insights) {
+    final displayed = (insights == null || insights.isEmpty) ? ['인사이트 없음'] : insights;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEFD5).withOpacity(0.6),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.lightbulb_outline, color: Color(0xFF8B5CF6), size: 22),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            displayed.first,
+            style: const TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.w800, color: textDark),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
+          if (displayed.length > 1)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: displayed.skip(1).take(2).map((s) => Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(s, style: const TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
+              )).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDashboardContent() {
     final data = _analyticsData!;
     final totalHours = data.totalUsageTime.inHours;
@@ -356,12 +405,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
                 const SizedBox(width: 16),
                 Expanded(
-                  child: _buildBentoCard(
-                    title: "사용 효율",
-                    value: "Good",
-                    icon: Icons.eco_rounded,
-                    accentColor: const Color(0xFF8B5CF6),
-                  ),
+                  child: _buildInsightCard(_insights),
                 ),
               ],
             ),

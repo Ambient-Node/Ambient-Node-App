@@ -361,6 +361,102 @@ class AnalyticsService {
     await generateTestData(username);
   }
 
+  /// Generate simple, human-readable insights for a given user.
+  /// Returns a list of short Korean sentences describing behavior.
+  static Future<List<String>> generateInsights(String username, {bool weekly = false}) async {
+    final analytics = await getUserAnalytics(username);
+    if (analytics == null) return ['데이터가 없습니다. 먼저 샘플 데이터를 시드하거나 사용 기록이 있어야 합니다.'];
+
+    final now = DateTime.now();
+    DateTime? periodStart;
+    DateTime? periodEnd;
+    if (weekly) {
+      // align to week start (Monday)
+      final weekStart = now.subtract(Duration(days: now.weekday - 1));
+      periodStart = DateTime(weekStart.year, weekStart.month, weekStart.day);
+      periodEnd = periodStart.add(const Duration(days: 7));
+    } else {
+      // single day (today)
+      periodStart = DateTime(now.year, now.month, now.day);
+      periodEnd = periodStart.add(const Duration(days: 1));
+    }
+
+    bool inPeriod(DateTime t) => !t.isBefore(periodStart!) && t.isBefore(periodEnd!);
+
+    final hourCounts = <int, int>{};
+    final manualHourCounts = <int, int>{};
+    final faceHourCounts = <int, int>{};
+    final speedCounts = <int, int>{};
+    final directionCounts = <String, int>{};
+
+    void addHourCount(Map<int, int> map, int hour) {
+      map[hour] = (map[hour] ?? 0) + 1;
+    }
+
+    // Fan sessions: consider sessions whose startTime is inside period
+    for (final s in analytics.fanSessions) {
+      if (!inPeriod(s.startTime)) continue;
+      final start = s.startTime;
+      final end = s.endTime.isBefore(periodEnd) ? s.endTime : periodEnd;
+      for (var hour = start.hour; ; hour = (hour + 1) % 24) {
+        addHourCount(hourCounts, hour);
+        if (hour == end.hour) break;
+      }
+      speedCounts[s.speed] = (speedCounts[s.speed] ?? 0) + 1;
+    }
+
+    for (final c in analytics.manualControls) {
+      if (!inPeriod(c.timestamp)) continue;
+      addHourCount(manualHourCounts, c.timestamp.hour);
+      directionCounts[c.direction] = (directionCounts[c.direction] ?? 0) + 1;
+      if (c.speed != null) speedCounts[c.speed!] = (speedCounts[c.speed!] ?? 0) + 1;
+    }
+
+    for (final f in analytics.faceTrackingSessions) {
+      if (!inPeriod(f.startTime)) continue;
+      addHourCount(faceHourCounts, f.startTime.hour);
+    }
+
+    int? _topHour(Map<int, int> m) {
+      if (m.isEmpty) return null;
+      return m.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+    }
+
+    T? _topKey<T>(Map<T, int> m) {
+      if (m.isEmpty) return null;
+      return m.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+    }
+
+    final List<String> sentences = [];
+    final periodLabel = weekly ? '이번 주' : '오늘';
+
+    final topHour = _topHour(hourCounts);
+    if (topHour != null) {
+      sentences.add('$periodLabel 주로 ${topHour}시경에 선풍기를 많이 사용합니다.');
+    }
+
+    final topManualHour = _topHour(manualHourCounts);
+    final topDirection = _topKey(directionCounts);
+    if (topManualHour != null && topDirection != null) {
+      sentences.add('$periodLabel ${topManualHour}시에 수동으로 조작하는 경우가 많고, 주로 "$topDirection" 방향을 사용합니다.');
+    } else if (topManualHour != null) {
+      sentences.add('$periodLabel ${topManualHour}시에 수동 조작이 많이 발생합니다.');
+    }
+
+    final topSpeed = _topKey(speedCounts);
+    if (topSpeed != null) {
+      sentences.add('$periodLabel 가장 선호하는 풍속은 Lv.$topSpeed 입니다.');
+    }
+
+    final topFaceHour = _topHour(faceHourCounts);
+    if (topFaceHour != null) {
+      sentences.add('$periodLabel 얼굴 추적은 ${topFaceHour}시에 활성화되는 경향이 있습니다.');
+    }
+
+    if (sentences.isEmpty) sentences.add('분석할 충분한 데이터가 없습니다.');
+    return sentences;
+  }
+
   static DailyUsage _createDailyUsage(
       DateTime date, Duration usageTime, Map<int, Duration> speedBreakdown) {
     return DailyUsage(
