@@ -287,7 +287,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  "AI 분석 리포트",
+                  "사용자 분석 리포트",
                   style: TextStyle(
                     fontFamily: 'Sen',
                     fontSize: 11,

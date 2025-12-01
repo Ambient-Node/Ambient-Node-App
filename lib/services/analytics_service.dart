@@ -432,20 +432,20 @@ class AnalyticsService {
 
     final topHour = _topHour(hourCounts);
     if (topHour != null) {
-      sentences.add('$periodLabel 주로 ${topHour}시경에 선풍기를 많이 사용합니다.');
+      sentences.add('$periodLabel 주로 ${topHour}시경에 선풍기를 많이 사용하셨네요.');
     }
 
     final topManualHour = _topHour(manualHourCounts);
     final topDirection = _topKey(directionCounts);
     if (topManualHour != null && topDirection != null) {
-      sentences.add('$periodLabel ${topManualHour}시에 수동으로 조작하는 경우가 많고, 주로 "$topDirection" 방향을 사용합니다.');
+      sentences.add('$periodLabel ${topManualHour}시에 수동으로 조작하는 경우가 많고, 주로 "$topDirection" 방향을 사용했어요.');
     } else if (topManualHour != null) {
-      sentences.add('$periodLabel ${topManualHour}시에 수동 조작이 많이 발생합니다.');
+      sentences.add('$periodLabel ${topManualHour}시에 수동 조작이 많이 발생했네요.');
     }
 
     final topSpeed = _topKey(speedCounts);
     if (topSpeed != null) {
-      sentences.add('$periodLabel 가장 선호하는 풍속은 Lv.$topSpeed 입니다.');
+      sentences.add('$periodLabel 가장 선호하는 풍속은 Lv.$topSpeed!');
     }
 
     final topFaceHour = _topHour(faceHourCounts);
