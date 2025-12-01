@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/user_analytics.dart';
 import '../services/analytics_service.dart';
+import '../utils/snackbar_helper.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   final String? selectedUserName;
@@ -92,12 +93,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     tooltip: 'Seed Test Data',
                     onPressed: () async {
                       if (widget.selectedUserName == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('사용자를 선택하세요')));
+                        showAppSnackBar(context, '사용자를 선택하세요', type: AppSnackType.info);
                         return;
                       }
                       await AnalyticsService.seedAnalyticsForUser(widget.selectedUserName!);
                       await _loadAnalytics();
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('샘플 분석 데이터가 로드되었습니다')));
+                      showAppSnackBar(context, '샘플 분석 데이터가 로드되었습니다', type: AppSnackType.success);
                     },
                     icon: const Icon(Icons.bolt_rounded, color: Colors.black54),
                   ),
@@ -622,12 +623,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return colors[speed.clamp(0, 5)];
   }
 
-  Future<void> _generateTestData() async {
-    try {
-      await AnalyticsService.generateTestData(widget.selectedUserName ?? "Demo User");
-      _loadAnalytics();
-    } catch (e) { print(e); }
-  }
+  // 개발: 더 이상 사용하지 않는 함수 제거됨 (seed 버튼이 직접 호출함)
 }
 
 class FadeInSlide extends StatelessWidget {

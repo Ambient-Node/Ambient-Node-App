@@ -69,7 +69,7 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  final bool _isTestMode = false;
+  final bool _isTestMode = true;
 
   int _index = 0;
   late final BleService ble;
