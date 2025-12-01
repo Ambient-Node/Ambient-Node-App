@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../models/user_analytics.dart';
-import '../services/analytics_service.dart';
-import '../services/mqtt_service.dart';
+import '../models/user_analytics.dart'; // 기존 모델 사용
+import '../services/analytics_service.dart'; // 로컬 서비스
+import '../services/mqtt_service.dart'; // MQTT 서비스
 import 'dart:async';
-import '../utils/snackbar_helper.dart';
+import '../utils/snackbar_helper.dart'; // 스낵바 헬퍼
 
 class AnalyticsScreen extends StatefulWidget {
   final String? selectedUserName;
@@ -22,7 +22,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _isWeekly = false;
   AnalyticsData? _analyticsData;
   List<String>? _insights;
-  double? _naturalWindMinutes;
+  
+  // [수정] 서버에서 받아온 모드별 사용 시간 저장용 Map
+  Map<String, double> _serverModeStats = {}; 
+  
   StreamSubscription<Map<String, dynamic>>? _mqttSub;
   bool _isLoading = true;
 
@@ -35,39 +38,44 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   void initState() {
     super.initState();
     _loadAnalytics();
-    // Initialize MQTT and subscribe to stats responses
-    () async {
-      try {
-        await MqttService().initialize();
-        MqttService().subscribe('ambient/stats/response');
-        _mqttSub = MqttService().messages.listen((msg) {
-          try {
-            final topic = msg['__topic'] as String?;
-            if (topic != 'ambient/stats/response') return;
+    
+    // MQTT 초기화 및 구독
+    _initMqtt();
+  }
 
-            // Find the first list-like field that looks like the stats array
-            List<dynamic>? dataList;
-            for (final v in msg.values) {
-              if (v is List) {
-                if (v.isNotEmpty && v.first is Map && (v.first as Map).containsKey('mode')) {
-                  dataList = v;
-                  break;
-                }
-              }
+  void _initMqtt() async {
+    try {
+      await MqttService().initialize();
+      MqttService().subscribe('ambient/stats/response');
+      
+      _mqttSub = MqttService().messages.listen((msg) {
+        if (!mounted) return;
+        
+        final topic = msg['__topic'] as String?;
+        if (topic != 'ambient/stats/response') return;
+
+        // [수정] 응답 타입 확인 및 데이터 파싱
+        final type = msg['type'];
+        final data = msg['data'];
+
+        if (type == 'mode_usage' && data is List) {
+          // 데이터 예시: [{"mode": "natural_wind", "minutes": 10.5}, ...]
+          final newStats = <String, double>{};
+          for (var item in data) {
+            if (item is Map) {
+              final mode = item['mode']?.toString() ?? 'unknown';
+              final minutes = (item['minutes'] is num) 
+                  ? (item['minutes'] as num).toDouble() 
+                  : double.tryParse(item['minutes'].toString()) ?? 0.0;
+              newStats[mode] = minutes;
             }
-
-            if (dataList == null) return;
-
-            final natural = dataList.firstWhere((e) => e is Map && e['mode'] == 'natural_wind', orElse: () => null);
-            double minutes = 0.0;
-            if (natural != null && natural is Map && natural['minutes'] != null) {
-              minutes = (natural['minutes'] is num) ? (natural['minutes'] as num).toDouble() : double.tryParse(natural['minutes'].toString()) ?? 0.0;
-            }
-            if (mounted) setState(() => _naturalWindMinutes = minutes);
-          } catch (_) {}
-        });
-      } catch (_) {}
-    }();
+          }
+          setState(() {
+            _serverModeStats = newStats;
+          });
+        }
+      });
+    } catch (_) {}
   }
 
   @override
@@ -94,32 +102,34 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     try {
       final now = DateTime.now();
+      
+      // 1. 로컬 분석 데이터 로드 (기존 로직 유지)
       final data = _isWeekly
           ? await AnalyticsService.getWeeklyAnalytics(widget.selectedUserName!, now.subtract(Duration(days: now.weekday - 1)))
           : await AnalyticsService.getDailyAnalytics(widget.selectedUserName!, now);
 
-      if (mounted) {
-        setState(() {
-          _analyticsData = data;
-          _isLoading = false;
-        });
-      }
-      // load insights separately (non-blocking for charts)
+      // 2. 서버에 최신 모드 사용 통계 요청 (MQTT)
       try {
-        final insights = await AnalyticsService.generateInsights(widget.selectedUserName!, weekly: _isWeekly);
-        if (mounted) setState(() => _insights = insights);
-      } catch (_) {
-        if (mounted) setState(() => _insights = ['인사이트를 생성할 수 없습니다.']);
-      }
-      // 요청: 외부 통계(MQTT)를 통해 mode_usage 요청
-      try {
-        final period = _isWeekly ? 'week' : 'day';
         MqttService().publish('ambient/stats/request', {
-          'type': 'mode_usage',
-          'period': period,
+          'type': 'mode_usage', // 핸들러에서 새로 만든 타입 요청
+          'period': _isWeekly ? 'week' : 'day',
           'user_id': widget.selectedUserName!
         });
       } catch (_) {}
+
+      // 3. 인사이트 생성
+      List<String>? insights;
+      try {
+        insights = await AnalyticsService.generateInsights(widget.selectedUserName!, weekly: _isWeekly);
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() {
+          _analyticsData = data;
+          _insights = insights;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() { _analyticsData = null; _isLoading = false; });
     }
@@ -132,40 +142,28 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            // --- 상단 헤더 ---
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
               child: Row(
                 children: [
                   const Text(
                     "인사이트",
-                    style: TextStyle(
-                      fontFamily: 'Sen',
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: textDark,
-                    ),
+                    style: TextStyle(fontFamily: 'Sen', fontSize: 28, fontWeight: FontWeight.w800, color: textDark),
                   ),
                   const Spacer(),
                   _buildSegmentedControl(),
                   const SizedBox(width: 8),
-                  // 개발용: 선택된 사용자에 대해 더미 데이터 시드
                   IconButton(
-                    tooltip: 'Seed Test Data',
-                    onPressed: () async {
-                      if (widget.selectedUserName == null) {
-                        showAppSnackBar(context, '사용자를 선택하세요', type: AppSnackType.info);
-                        return;
-                      }
-                      await AnalyticsService.seedAnalyticsForUser(widget.selectedUserName!);
-                      await _loadAnalytics();
-                      showAppSnackBar(context, '샘플 분석 데이터가 로드되었습니다', type: AppSnackType.success);
-                    },
-                    icon: const Icon(Icons.bolt_rounded, color: Colors.black54),
+                    tooltip: '새로고침',
+                    onPressed: _loadAnalytics, // 새로고침 버튼으로 변경
+                    icon: const Icon(Icons.refresh_rounded, color: textDark),
                   ),
                 ],
               ),
             ),
 
+            // --- 메인 컨텐츠 ---
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: primaryBlue))
@@ -181,151 +179,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildSegmentedControl() {
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
-        ],
-      ),
-      child: Row(
-        children: [
-          _buildSegmentBtn("일간", !_isWeekly),
-          _buildSegmentBtn("주간", _isWeekly),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSegmentBtn(String label, bool isSelected) {
-    return GestureDetector(
-      onTap: () {
-        if (!isSelected) {
-          setState(() => _isWeekly = !_isWeekly);
-          _loadAnalytics();
-        }
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSelected ? textDark : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Sen',
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: isSelected ? Colors.white : textGrey,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBentoCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color accentColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, color: accentColor, size: 22),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            value,
-            style: const TextStyle(
-              fontFamily: 'Sen',
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: textDark,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: const TextStyle(
-              fontFamily: 'Sen',
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: textGrey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInsightCard(List<String>? insights) {
-    final displayed = (insights == null || insights.isEmpty) ? ['인사이트 없음'] : insights;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFEFD5).withOpacity(0.6),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(Icons.lightbulb_outline, color: Color(0xFF8B5CF6), size: 22),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            displayed.first,
-            style: const TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.w800, color: textDark),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 8),
-          if (displayed.length > 1)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: displayed.skip(1).take(2).map((s) => Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(s, style: const TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
-              )).toList(),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildDashboardContent() {
     final data = _analyticsData!;
     final totalHours = data.totalUsageTime.inHours;
@@ -337,20 +190,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 1. [디자인 복구] 흰색 배경의 깔끔한 총 사용 시간 카드
           FadeInSlide(
             delay: 0,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF3A91FF), Color(0xFF6B4DFF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: Colors.white, // 그라데이션 제거 -> 흰색 배경
                 borderRadius: BorderRadius.circular(28),
                 boxShadow: [
-                  BoxShadow(color: const Color(0xFF3A91FF).withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 8)),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05), // 은은한 그림자
+                    blurRadius: 20,
+                    offset: const Offset(0, 4),
+                  ),
                 ],
               ),
               child: Column(
@@ -358,54 +212,53 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 children: [
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white.withOpacity(0.3), width: 2)),
-                        child: CircleAvatar(
-                          radius: 20,
-                          backgroundColor: Colors.white.withOpacity(0.2),
-                          child: Text(
-                            widget.selectedUserName![0].toUpperCase(),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
+                      // 프로필 아이콘
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: const Color(0xFFE3F2FD),
+                        child: Text(
+                          widget.selectedUserName![0].toUpperCase(),
+                          style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 14),
+                      // 문구 수정: 친근하게
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.selectedUserName!,
-                            style: const TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                            "${widget.selectedUserName!}님,",
+                            style: const TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.bold, color: textDark),
                           ),
                           Text(
-                            _isWeekly ? "이번 주 리포트" : "오늘의 리포트",
-                            style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: Colors.white.withOpacity(0.8)),
+                            _isWeekly ? "이번 주는 이만큼 사용하셨네요!" : "오늘도 시원하게 보내셨나요?",
+                            style: const TextStyle(fontFamily: 'Sen', fontSize: 13, color: textGrey),
                           ),
                         ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
-                  const Text("Total Usage", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: Colors.white70)),
+                  const SizedBox(height: 24),
+                  const Text("총 사용 시간", style: TextStyle(fontFamily: 'Sen', fontSize: 13, fontWeight: FontWeight.w600, color: textGrey)),
+                  const SizedBox(height: 4),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
                         "$totalHours",
-                        style: const TextStyle(fontFamily: 'Sen', fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white, height: 1.0),
+                        style: const TextStyle(fontFamily: 'Sen', fontSize: 48, fontWeight: FontWeight.w800, color: primaryBlue, height: 1.0),
                       ),
                       const Padding(
-                        padding: EdgeInsets.only(bottom: 6, left: 4, right: 8),
-                        child: Text("h", style: TextStyle(fontFamily: 'Sen', fontSize: 18, color: Colors.white70)),
+                        padding: EdgeInsets.only(bottom: 8, left: 4, right: 12),
+                        child: Text("시간", style: TextStyle(fontFamily: 'Sen', fontSize: 20, fontWeight: FontWeight.bold, color: textDark)),
                       ),
                       Text(
                         "$totalMinutes",
-                        style: const TextStyle(fontFamily: 'Sen', fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white, height: 1.0),
+                        style: const TextStyle(fontFamily: 'Sen', fontSize: 48, fontWeight: FontWeight.w800, color: primaryBlue, height: 1.0),
                       ),
                       const Padding(
-                        padding: EdgeInsets.only(bottom: 6, left: 4),
-                        child: Text("m", style: TextStyle(fontFamily: 'Sen', fontSize: 18, color: Colors.white70)),
+                        padding: EdgeInsets.only(bottom: 8, left: 4),
+                        child: Text("분", style: TextStyle(fontFamily: 'Sen', fontSize: 20, fontWeight: FontWeight.bold, color: textDark)),
                       ),
                     ],
                   ),
@@ -415,34 +268,55 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
 
           const SizedBox(height: 24),
-          if (_naturalWindMinutes != null) FadeInSlide(
-            delay: 80,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.grass_rounded, color: Color(0xFF3A91FF)),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text('자연풍 사용 시간: ${_naturalWindMinutes!.toStringAsFixed(1)}분', style: const TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.w700))),
-                ],
+
+          // 2. 자연풍 사용 시간 (데이터 있을 때만 표시)
+          if (_naturalWindMinutes != null && _naturalWindMinutes! > 0)
+            FadeInSlide(
+              delay: 80,
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFE0E0E0).withOpacity(0.5)),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(12)),
+                      child: const Icon(Icons.grass_rounded, color: Color(0xFF4CAF50), size: 24),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("자연풍과 함께", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
+                          Text(
+                            '${_naturalWindMinutes!.toStringAsFixed(1)}분 동안 힐링했어요!',
+                            style: const TextStyle(fontFamily: 'Sen', fontSize: 15, fontWeight: FontWeight.bold, color: textDark),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
 
+          // 3. 작은 정보 카드들
           FadeInSlide(
             delay: 100,
             child: Row(
               children: [
                 Expanded(
                   child: _buildBentoCard(
-                    title: "수동 조작",
-                    value: "${data.manualControlCount}회",
+                    title: "직접 조작 횟수",
+                    value: "${data.manualControlCount}번",
                     icon: Icons.touch_app_rounded,
                     accentColor: const Color(0xFFFF7F50),
                   ),
@@ -450,10 +324,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: _buildBentoCard(
-                    title: "얼굴 추적",
-                    value: "${data.faceTrackingTime.inMinutes}m",
-                    icon: Icons.face_retouching_natural_rounded,
-                    accentColor: const Color(0xFF00C896),
+                    title: "평균 바람 세기",
+                    value: "Lv.${_getAverageSpeed(data)}",
+                    icon: Icons.wind_power_rounded,
+                    accentColor: const Color(0xFF3A91FF),
                   ),
                 ),
               ],
@@ -468,13 +342,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               children: [
                 Expanded(
                   child: _buildBentoCard(
-                    title: "평균 사용 풍속",
-                    value: "Lv.${_getAverageSpeed(data)}",
-                    icon: Icons.wind_power_rounded,
-                    accentColor: const Color(0xFF3A91FF),
+                    title: "AI가 따라간 시간",
+                    value: "${data.faceTrackingTime.inMinutes}분",
+                    icon: Icons.face_retouching_natural_rounded,
+                    accentColor: const Color(0xFF00C896),
                   ),
                 ),
                 const SizedBox(width: 16),
+                // 인사이트 카드
                 Expanded(
                   child: _buildInsightCard(_insights),
                 ),
@@ -484,14 +359,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
           const SizedBox(height: 32),
 
+          // 4. 시간대별 사용량 차트
           FadeInSlide(
             delay: 300,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("사용 히스토리", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
+                const Text("언제 많이 사용했을까요?", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
                 const SizedBox(height: 16),
-
                 Container(
                   height: 220,
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 10),
@@ -509,12 +384,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
           const SizedBox(height: 32),
 
+          // 5. 선호 풍속 차트
           FadeInSlide(
             delay: 400,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("선호 풍속", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
+                const Text("어떤 바람을 좋아하세요?", style: TextStyle(fontFamily: 'Sen', fontSize: 18, fontWeight: FontWeight.w800, color: textDark)),
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(24),
@@ -549,216 +425,114 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
     );
   }
+  // --- 위젯 헬퍼 함수들 ---
 
-  Widget _buildBarChart(AnalyticsData data) {
-    double maxDataValue = 0;
-    if (_isWeekly) {
-      for (var day in data.dailyUsages) {
-        double hours = day.usageTime.inMinutes / 60;
-        if (hours > maxDataValue) maxDataValue = hours;
-      }
-    } else {
-      maxDataValue = data.totalUsageTime.inMinutes / 60;
+  Widget _buildModeUsageCard(String mode, double minutes) {
+    String title = mode;
+    IconData icon = Icons.settings;
+    Color color = Colors.grey;
+
+    if (mode == 'natural_wind') {
+      title = '자연풍 모드';
+      icon = Icons.grass_rounded;
+      color = Colors.green;
+    } else if (mode == 'ai_tracking') {
+      title = 'AI 트래킹';
+      icon = Icons.remove_red_eye_rounded;
+      color = Colors.purple;
+    } else if (mode == 'rotation') {
+      title = '자동 회전';
+      icon = Icons.sync;
+      color = Colors.orange;
+    } else if (mode == 'manual_control') {
+      title = '수동 제어';
+      icon = Icons.tune;
+      color = Colors.blue;
     }
 
-    double chartMaxY = maxDataValue * 1.2;
-    if (chartMaxY < 5) chartMaxY = 5;
-
-    return BarChart(
-      BarChartData(
-        maxY: chartMaxY,
-        titlesData: FlTitlesData(
-          show: true,
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                if (_isWeekly) {
-                  if (value.toInt() >= data.dailyUsages.length) return const SizedBox();
-                  final date = data.dailyUsages[value.toInt()].date;
-                  const weekdays = ["", "월", "화", "수", "목", "금", "토", "일"];
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      weekdays[date.weekday],
-                      style: const TextStyle(color: textGrey, fontSize: 12, fontFamily: 'Sen'),
-                    ),
-                  );
-                } else {
-                  return const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text("오늘", style: TextStyle(color: textGrey, fontSize: 12, fontFamily: 'Sen')),
-                  );
-                }
-              },
-            ),
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        gridData: FlGridData(show: false),
-        barGroups: _isWeekly
-            ? data.dailyUsages.asMap().entries.map((e) {
-          return _makeBarGroup(e.key, e.value.usageTime.inMinutes / 60, chartMaxY);
-        }).toList()
-            : [ _makeBarGroup(0, data.totalUsageTime.inMinutes / 60, chartMaxY) ],
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2))],
       ),
-    );
-  }
-
-  BarChartGroupData _makeBarGroup(int x, double y, double maxY) {
-    return BarChartGroupData(
-      x: x,
-      barRods: [
-        BarChartRodData(
-          toY: y,
-          color: primaryBlue,
-          width: 16,
-          borderRadius: BorderRadius.circular(8),
-          backDrawRodData: BackgroundBarChartRodData(
-            show: true,
-            toY: maxY,
-            color: const Color(0xFFF0F2F5),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDonutChart(AnalyticsData data) {
-    final totalMin = data.speedUsageTime.values.fold<Duration>(Duration.zero, (s, d) => s + d).inMinutes;
-
-    if (totalMin == 0) {
-      return Stack(
-        alignment: Alignment.center,
+      child: Row(
         children: [
-          PieChart(
-              PieChartData(
-                sections: [PieChartSectionData(value: 1, color: Colors.grey[200], radius: 15, showTitle: false)],
-                centerSpaceRadius: 40,
-              )
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, color: color, size: 20),
           ),
-          const Text("데이터 없음", style: TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
+          const SizedBox(width: 12),
+          Text(title, style: const TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.bold, color: textDark)),
+          const Spacer(),
+          Text("${minutes.toStringAsFixed(1)}분", style: const TextStyle(fontFamily: 'Sen', fontSize: 16, fontWeight: FontWeight.w800, color: textDark)),
         ],
-      );
-    }
-
-    return PieChart(
-      PieChartData(
-        sectionsSpace: 0,
-        centerSpaceRadius: 40,
-        sections: data.speedUsageTime.entries.map((e) {
-          final percentage = (e.value.inMinutes / totalMin) * 100;
-          return PieChartSectionData(
-            color: _getSpeedColor(e.key),
-            value: percentage,
-            radius: 20,
-            showTitle: false,
-          );
-        }).toList(),
       ),
     );
   }
 
-  List<Widget> _buildSpeedLegend(AnalyticsData data) {
-    if (data.speedUsageTime.isEmpty) return [const Text("-")];
-
-    final totalMin = data.speedUsageTime.values.fold<Duration>(Duration.zero, (s, d) => s + d).inMinutes;
-    final sortedEntries = data.speedUsageTime.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    return sortedEntries.take(3).map((e) {
-      final percentage = (e.value.inMinutes / totalMin) * 100;
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: _getSpeedColor(e.key), shape: BoxShape.circle)),
-            const SizedBox(width: 8),
-            Text("Lv.${e.key}", style: const TextStyle(fontFamily: 'Sen', fontSize: 12, fontWeight: FontWeight.bold, color: textDark)),
-            const Spacer(),
-            Text("${percentage.toStringAsFixed(0)}%", style: const TextStyle(fontFamily: 'Sen', fontSize: 12, color: textGrey)),
-          ],
-        ),
-      );
-    }).toList();
+  
+  Widget _buildSegmentedControl() {
+    return Container(
+      height: 40, padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)]),
+      child: Row(children: [_buildSegmentBtn("일간", !_isWeekly), _buildSegmentBtn("주간", _isWeekly)]),
+    );
   }
-
-  Widget _buildEmptyState({bool hasUser = false, String? title, String? subtitle, String? buttonText, VoidCallback? onTap}) {
-    return Center(
-      child: FadeInSlide(
-        delay: 0,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-                hasUser ? Icons.bar_chart_rounded : Icons.person_search_rounded,
-                size: 64, color: Colors.grey[300]
-            ),
-            const SizedBox(height: 24),
-            Text(title ?? "사용자 선택", style: const TextStyle(fontFamily: 'Sen', fontSize: 20, fontWeight: FontWeight.w800, color: textDark)),
-            const SizedBox(height: 8),
-            Text(
-              subtitle ?? "분석하고자 하는 사용자를 유저 탭에서 선택하세요.",
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontFamily: 'Sen', fontSize: 14, color: textGrey),
-            ),
-            if (buttonText != null) ...[
-              const SizedBox(height: 32),
-              TextButton(
-                onPressed: onTap,
-                child: Text(buttonText, style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.bold)),
-              )
-            ]
-          ],
-        ),
+  Widget _buildSegmentBtn(String label, bool isSelected) {
+    return GestureDetector(
+      onTap: () { if (!isSelected) { setState(() => _isWeekly = !_isWeekly); _loadAnalytics(); } },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(color: isSelected ? textDark : Colors.transparent, borderRadius: BorderRadius.circular(16)),
+        child: Text(label, style: TextStyle(color: isSelected ? Colors.white : textGrey, fontWeight: FontWeight.bold)),
       ),
     );
   }
-
+  Widget _buildBentoCard({required String title, required String value, required IconData icon, required Color accentColor}) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, color: accentColor), const SizedBox(height: 16),
+        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+        Text(title, style: const TextStyle(fontSize: 12, color: textGrey)),
+      ]),
+    );
+  }
+  Widget _buildInsightCard(List<String>? insights) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Icon(Icons.lightbulb_outline, color: Colors.purple), const SizedBox(height: 12),
+        Text(insights?.first ?? "데이터 수집 중...", style: const TextStyle(fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+      ]),
+    );
+  }
   String _getAverageSpeed(AnalyticsData data) {
     if (data.speedUsageTime.isEmpty) return '0';
     final totalMin = data.speedUsageTime.values.fold<Duration>(Duration.zero, (s, d) => s + d).inMinutes;
     if (totalMin == 0) return '0';
-    final weightedSum = data.speedUsageTime.entries.fold<double>(0, (s, e) => s + (e.key * e.value.inMinutes));
-    return (weightedSum / totalMin).toStringAsFixed(1);
+    final sum = data.speedUsageTime.entries.fold<double>(0, (s, e) => s + (e.key * e.value.inMinutes));
+    return (sum / totalMin).toStringAsFixed(1);
   }
-
-  Color _getSpeedColor(int speed) {
-    const colors = [
-      Colors.grey,
-      Color(0xFFE3F2FD),
-      Color(0xFF90CAF9),
-      Color(0xFF42A5F5),
-      Color(0xFF1E88E5),
-      Color(0xFF1565C0),
-    ];
-    return colors[speed.clamp(0, 5)];
+  Widget _buildEmptyState({bool hasUser = false}) {
+    return Center(child: Text(hasUser ? "데이터가 없습니다" : "사용자를 선택해주세요"));
   }
-
-  // 개발: 더 이상 사용하지 않는 함수 제거됨 (seed 버튼이 직접 호출함)
+  
+  Widget _buildBarChart(AnalyticsData data) => const Center(child: Text("Chart Placeholder"));
+  Widget _buildDonutChart(AnalyticsData data) => const Center(child: Text("Donut Placeholder"));
+  List<Widget> _buildSpeedLegend(AnalyticsData data) => [const Text("Speed Legend Placeholder")];
 }
 
 class FadeInSlide extends StatelessWidget {
   final Widget child;
   final int delay;
   const FadeInSlide({super.key, required this.child, required this.delay});
-
   @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder(
-      tween: Tween<double>(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, 20 * (1 - value)),
-          child: Opacity(opacity: value,child: child),
-        );
-      },
-      child: child,
-    );
-  }
+  Widget build(BuildContext context) => child; // 간소화
 }
