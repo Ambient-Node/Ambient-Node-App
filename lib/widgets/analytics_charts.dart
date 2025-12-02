@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/user_analytics.dart';
 
-/// 사용 시간 차트
 class UsageTimeChart extends StatelessWidget {
   final AnalyticsData data;
   final bool isWeekly;
@@ -199,7 +198,6 @@ class UsageTimeChart extends StatelessWidget {
   }
 }
 
-/// 속도별 사용 비율 파이 차트
 class SpeedUsagePieChart extends StatelessWidget {
   final AnalyticsData data;
 
@@ -390,7 +388,6 @@ class SpeedUsagePieChart extends StatelessWidget {
   }
 }
 
-/// 통계 카드
 class StatCard extends StatelessWidget {
   final String title;
   final String value;

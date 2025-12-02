@@ -1,13 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
-/// 모든 화면에서 공통으로 사용하는 상단바 위젯
 class AppTopBar extends StatelessWidget {
   final String deviceName;
   final String subtitle;
   final bool connected;
   final VoidCallback onConnectToggle;
-  final String? userImagePath; // 선택된 사용자의 이미지 경로
+  final String? userImagePath;
 
   const AppTopBar({
     super.key,

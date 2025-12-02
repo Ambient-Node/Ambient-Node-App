@@ -1,11 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:ambient_node/widgets/app_top_bar.dart';
-import 'package:ambient_node/widgets/remote_control_dpad.dart';
 import 'package:ambient_node/screens/user_registration_screen.dart';
 import 'package:ambient_node/utils/image_helper.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ambient_node/services/analytics_service.dart';
 
 class ControlScreen extends StatefulWidget {
@@ -13,9 +14,13 @@ class ControlScreen extends StatefulWidget {
   final String deviceName;
   final VoidCallback onConnect;
   final String? selectedUserName;
-  final Function(String?, String?) onUserSelectionChanged;
-  final Function(Map<String, dynamic>)? onUserDataSend;
 
+  final Function(String?, String?, String?) onUserSelectionChanged;
+
+  final Function(Map<String, dynamic>)? onUserDataSend;
+  
+  final Future<bool> Function(Map<String, dynamic>)? onUserDataSendAwait;
+  final Stream<Map<String, dynamic>>? dataStream;
   const ControlScreen({
     super.key,
     required this.connected,
@@ -24,6 +29,8 @@ class ControlScreen extends StatefulWidget {
     this.selectedUserName,
     required this.onUserSelectionChanged,
     this.onUserDataSend,
+    required this.onUserDataSendAwait, // 필수 파라미터
+    this.dataStream,
   });
 
   @override
@@ -32,22 +39,66 @@ class ControlScreen extends StatefulWidget {
 
 class _ControlScreenState extends State<ControlScreen> {
   List<UserProfile> users = [];
-  int? selectedUserIndex; // 단일 선택 (하위 호환성)
-  List<int> selectedUserIndices = []; // 다중 선택 (최대 2명)
+  int? selectedUserIndex;
+  List<int> selectedUserIndices = [];
+  StreamSubscription? _dataSubscription;
+  String? _selectedUserImagePath;
+
+  static const Color bgLight = Color(0xFFF8FAFC);
+  static const Color textMain = Color(0xFF1E293B);
+  static const Color textSub = Color(0xFF64748B);
+  static const Color colorUser1 = Color(0xFF6366F1);
+  static const Color colorUser2 = Color(0xFF14B8A6);
 
   @override
   void initState() {
     super.initState();
     _loadUsers();
+
+    _dataSubscription = widget.dataStream?.listen((data) {
+      if (!mounted) return;
+      // 필요 시 데이터 수신 로직 추가
+    });
+  }
+
+  @override
+  void dispose() {
+    _dataSubscription?.cancel();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> _getSelectedUsersList() {
+    return selectedUserIndices.map((idx) {
+      final user = users[idx];
+      return {
+        'user_id': user.userId,
+        'username': user.name,
+        'role': selectedUserIndices.indexOf(idx) + 1,
+      };
+    }).toList();
   }
 
   Future<void> _loadUsers() async {
     final prefs = await SharedPreferences.getInstance();
     final usersJson = prefs.getStringList('users') ?? [];
+
+    final loadedUsers = usersJson.map((userStr) {
+      final userMap = jsonDecode(userStr);
+      final user = UserProfile.fromJson(userMap);
+      // userId가 없는 구버전 데이터 호환성 처리
+      if (user.userId == null) {
+        return UserProfile(
+          name: user.name,
+          avatarUrl: user.avatarUrl,
+          imagePath: user.imagePath,
+          userId: 'user_${user.name.toLowerCase().replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}',
+        );
+      }
+      return user;
+    }).toList();
+
     setState(() {
-      users = usersJson
-          .map((userStr) => UserProfile.fromJson(jsonDecode(userStr)))
-          .toList();
+      users = loadedUsers;
     });
   }
 
@@ -60,34 +111,40 @@ class _ControlScreenState extends State<ControlScreen> {
   Future<void> _addUser() async {
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
-      MaterialPageRoute(
-        builder: (context) => const UserRegistrationScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const UserRegistrationScreen()),
     );
-
+    
     if (result != null && result['action'] == 'register') {
-      final newUser = UserProfile(
-        name: result['name']!,
-        imagePath: result['imagePath'],
-      );
-
-      setState(() {
-        users.add(newUser);
-      });
-      await _saveUsers();
-
-      // BLE로 사용자 데이터 전송 (Base64 인코딩)
-      final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
-
-      widget.onUserDataSend?.call({
-        'action': 'register_user',
-        'name': result['name']!,
-        'image_base64': base64Image,
-        'bluetooth_id': 'android_${DateTime.now().millisecondsSinceEpoch}', // 임시 ID
+      final generatedUserId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+      final payload = {
+        'action': 'user_register',
+        'user_id': generatedUserId,
+        'username': result['name']!,
+        'image_base64': await ImageHelper.encodeImageToBase64(result['imagePath']),
         'timestamp': DateTime.now().toIso8601String(),
-      });
+      };
 
-      print('[ControlScreen] 사용자 등록 데이터 전송: ${result['name']}');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('사용자를 등록 중입니다...'), duration: Duration(seconds: 10)));
+
+      if (widget.connected && widget.onUserDataSendAwait != null) {
+        // ACK 대기
+        final ack = await widget.onUserDataSendAwait!.call(payload);
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        
+        if (ack) {
+          final newUser = UserProfile(
+              name: result['name']!,
+              imagePath: result['imagePath'],
+              userId: generatedUserId);
+          setState(() => users.add(newUser));
+          await _saveUsers();
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('등록되었습니다.'), backgroundColor: Colors.green));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 ACK를 받지 못했습니다. 등록이 취소되었습니다.'), backgroundColor: Colors.red));
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 연결이 필요합니다. 등록이 취소되었습니다.'), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -97,275 +154,213 @@ class _ControlScreenState extends State<ControlScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => UserRegistrationScreen(
-          existingName: user.name,
-          existingImagePath: user.imagePath,
-          isEditMode: true,
-        ),
+            existingName: user.name,
+            existingImagePath: user.imagePath,
+            isEditMode: true),
       ),
     );
 
     if (result != null) {
       if (result['action'] == 'register') {
+        // 수정 로직 (ACK 대기 없이 전송만 하거나 필요시 대기)
+        final existingUser = users[index];
         final updatedUser = UserProfile(
-          name: result['name']!,
-          imagePath: result['imagePath'],
-        );
-
+            name: result['name']!,
+            imagePath: result['imagePath'],
+            userId: existingUser.userId,
+            avatarUrl: existingUser.avatarUrl);
+            
         setState(() {
           users[index] = updatedUser;
+          if (selectedUserIndices.contains(index)) _sendUserSelectionToBLE();
         });
         await _saveUsers();
 
-        // BLE로 수정된 사용자 데이터 전송
-        final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
-
-        widget.onUserDataSend?.call({
-          'action': 'update_user',
-          'index': index,
-          'name': result['name']!,
-          'image_base64': base64Image,
-          'timestamp': DateTime.now().toIso8601String(),
-        });
-
-        print('[ControlScreen] 사용자 수정 데이터 전송: ${result['name']}');
+        if (widget.connected && widget.onUserDataSend != null) {
+          final base64Image = await ImageHelper.encodeImageToBase64(result['imagePath']);
+          widget.onUserDataSend!.call({
+            'action': 'user_update',
+            'user_id': updatedUser.userId,
+            'username': result['name']!,
+            'image_base64': base64Image,
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+        }
       } else if (result['action'] == 'delete') {
-        widget.onUserDataSend?.call({
-          'action': 'delete_user',
-          'index': index,
-          'name': users[index].name,
+        // 삭제 로직
+        final userToDelete = users[index];
+        final payload = {
+          'action': 'user_delete',
+          'user_id': userToDelete.userId,
           'timestamp': DateTime.now().toIso8601String(),
-        });
-        _deleteUser(index);
+        };
+
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('삭제 중...'), duration: Duration(seconds: 5)));
+
+        if (widget.connected && widget.onUserDataSendAwait != null) {
+          final ack = await widget.onUserDataSendAwait!.call(payload);
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          
+          if (ack) {
+            _deleteUser(index);
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('삭제되었습니다.'), backgroundColor: Colors.green));
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 ACK를 받지 못했습니다. 삭제가 취소되었습니다.'), backgroundColor: Colors.red));
+          }
+        } else {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기기 연결이 필요합니다. 삭제가 취소되었습니다.'), backgroundColor: Colors.red));
+        }
       }
     }
   }
 
   Future<void> _deleteUser(int index) async {
     setState(() {
-      // 다중 선택에서 제거
-      if (selectedUserIndices.contains(index)) {
-        selectedUserIndices.remove(index);
-        // 인덱스 재조정
-        selectedUserIndices = selectedUserIndices.map((idx) => idx > index ? idx - 1 : idx).toList();
-      } else {
-        // 인덱스 재조정
-        selectedUserIndices = selectedUserIndices.map((idx) => idx > index ? idx - 1 : idx).toList();
-      }
-
-      // 하위 호환성
-      if (selectedUserIndex == index) {
-        selectedUserIndex = null;
-        widget.onUserSelectionChanged(null, null);
-      } else if (selectedUserIndex != null && selectedUserIndex! > index) {
-        selectedUserIndex = selectedUserIndex! - 1;
-      }
-
+      if (selectedUserIndices.contains(index)) selectedUserIndices.remove(index);
       users.removeAt(index);
+      
+      // 인덱스 재정렬 (삭제된 인덱스 뒤의 선택된 인덱스들 당기기)
+      selectedUserIndices = selectedUserIndices
+          .map((idx) => idx > index ? idx - 1 : idx)
+          .where((idx) => idx >= 0 && idx < users.length)
+          .toList();
 
-      // 선택 상태 업데이트
-      if (selectedUserIndices.isEmpty) {
-        widget.onUserSelectionChanged(null, null);
-      } else {
-        final firstUser = users[selectedUserIndices[0]];
-        widget.onUserSelectionChanged(firstUser.name, firstUser.imagePath);
-      }
+      _updateMainSelectionState();
     });
     await _saveUsers();
+    _sendUserSelectionToBLE();
   }
 
   void _selectUser(int index) {
     setState(() {
-      // 이미 선택된 사용자인지 확인
       final isSelected = selectedUserIndices.contains(index);
-
       if (isSelected) {
-        // 선택 해제
         selectedUserIndices.remove(index);
-        _reorderSelectedUsers();
+        selectedUserIndices.sort();
       } else {
-        // 새로 선택
         if (selectedUserIndices.length >= 2) {
-          // 최대 2명 초과 시 경고
+          ScaffoldMessenger.of(context).clearSnackBars();
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('최대 2명까지만 선택 가능합니다'),
-              duration: Duration(seconds: 2),
-              backgroundColor: Colors.orange,
-            ),
+              SnackBar(
+                  content: Row(
+                    children: const [
+                      Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '최대 2명까지만 선택 가능합니다',
+                          style: TextStyle(fontFamily: 'Sen', fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: const Color(0xFFFF5252),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  duration: const Duration(seconds: 2)
+              )
           );
           return;
         }
         selectedUserIndices.add(index);
+        selectedUserIndices.sort();
       }
-
-      // 하위 호환성을 위한 단일 선택 업데이트
-      selectedUserIndex = selectedUserIndices.isNotEmpty ? selectedUserIndices[0] : null;
-
-      // 첫 번째 선택된 사용자 정보 전달 (하위 호환성)
-      if (selectedUserIndices.isNotEmpty) {
-        final firstUser = users[selectedUserIndices[0]];
-        widget.onUserSelectionChanged(firstUser.name, firstUser.imagePath);
-      } else {
-        widget.onUserSelectionChanged(null, null);
-      }
-
-      // BLE로 다중 사용자 선택 전송
-      final selectedUsersData = selectedUserIndices.map((idx) {
-        final user = users[idx];
-        return {
-          'user_id': user.name.toLowerCase().replaceAll(' ', '_'),
-          'name': user.name,
-          'role': selectedUserIndices.indexOf(idx) + 1, // 1번, 2번
-        };
-      }).toList();
-
-      widget.onUserDataSend?.call({
-        'action': 'select_users',
-        'users': selectedUsersData,
-        'count': selectedUserIndices.length,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-
-      print('[ControlScreen] 선택된 사용자: ${selectedUserIndices.map((idx) => users[idx].name).join(", ")}');
+      _updateMainSelectionState();
     });
+    _sendUserSelectionToBLE();
   }
 
-  void _reorderSelectedUsers() {
-    // 선택 해제 후 순서 재정렬 (1번, 2번 유지)
-    // 이미 정렬되어 있으므로 별도 작업 불필요
-    // 필요시 여기서 추가 로직 구현 가능
+  void _updateMainSelectionState() {
+    selectedUserIndex = selectedUserIndices.isNotEmpty ? selectedUserIndices[0] : null;
+    if (selectedUserIndices.isNotEmpty) {
+      final firstUser = users[selectedUserIndices[0]];
+      setState(() {
+        _selectedUserImagePath = firstUser.imagePath;
+      });
+      widget.onUserSelectionChanged(firstUser.userId, firstUser.name, firstUser.imagePath);
+    } else {
+      setState(() {
+        _selectedUserImagePath = null;
+      });
+      widget.onUserSelectionChanged(null, null, null);
+    }
   }
 
   void _clearAllSelections() {
     setState(() {
       selectedUserIndices.clear();
-      selectedUserIndex = null;
-      widget.onUserSelectionChanged(null, null);
+      _selectedUserImagePath = null;
+      _updateMainSelectionState();
+    });
+    _sendUserSelectionToBLE();
+  }
 
-      widget.onUserDataSend?.call({
-        'action': 'clear_selection',
+  void _sendUserSelectionToBLE() {
+    if (!widget.connected) return;
+    List<Map<String, dynamic>> selectedUsers = [];
+    if(selectedUserIndices.isNotEmpty) selectedUsers = _getSelectedUsersList();
+
+    if (widget.onUserDataSend != null) {
+      widget.onUserDataSend!.call({
+        'action': 'user_select',
+        'user_list': selectedUsers,
         'timestamp': DateTime.now().toIso8601String(),
       });
-    });
+      // 모드 자동 변경 로직은 삭제됨 (요청사항 반영)
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7F8),
+      backgroundColor: bgLight,
       body: SafeArea(
         child: Column(
           children: [
             AppTopBar(
               deviceName: widget.deviceName,
-              subtitle: selectedUserIndices.isNotEmpty
-                  ? selectedUserIndices.length == 1
-                      ? '${users[selectedUserIndices[0]].name} 선택 중'
-                      : '${selectedUserIndices.length}명 선택 중'
-                  : 'Lab Fan',
+              subtitle: '유저 선택',
               connected: widget.connected,
               onConnectToggle: widget.onConnect,
-              userImagePath: selectedUserIndices.isNotEmpty
-                  ? users[selectedUserIndices[0]].imagePath
-                  : null,
+              userImagePath: _selectedUserImagePath,
             ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  if (selectedUserIndices.isNotEmpty)
-                    TextButton.icon(
-                      onPressed: _clearAllSelections,
-                      icon: const Icon(Icons.clear_all, size: 16),
-                      label: const Text('전체 해제'),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        foregroundColor: Colors.orange,
-                        backgroundColor: Colors.orange.withOpacity(0.1),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    )
-                  else
-                    const SizedBox.shrink(),
-                  TextButton.icon(
-                    onPressed: selectedUserIndices.isNotEmpty && selectedUserIndices.length == 1
-                        ? () => _editUser(selectedUserIndices[0])
-                        : null,
-                    icon: Icon(
-                      Icons.edit_outlined,
-                      size: 18,
-                      color: selectedUserIndices.isNotEmpty && selectedUserIndices.length == 1
-                          ? const Color(0xFF3A90FF)
-                          : Colors.grey,
-                    ),
-                    label: Text(
-                      '편집',
-                      style: TextStyle(
-                        fontFamily: 'Sen',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: selectedUserIndices.isNotEmpty && selectedUserIndices.length == 1
-                            ? const Color(0xFF3A90FF)
-                            : Colors.grey,
-                      ),
-                    ),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      backgroundColor: selectedUserIndices.isNotEmpty && selectedUserIndices.length == 1
-                          ? const Color(0xFF3A90FF).withOpacity(0.1)
-                          : Colors.grey.withOpacity(0.1),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 110,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+            const SizedBox(height: 10),
+
+            _buildSelectionHeader(),
+
+            const SizedBox(height: 10),
+
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.all(20),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 0.8,
+                ),
                 itemCount: users.length + 1,
                 itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return _AddUserCard(onTap: _addUser);
-                  }
+                  if (index == 0) return _buildAddUserCard();
+
                   final userIndex = index - 1;
+                  final user = users[userIndex];
                   final isSelected = selectedUserIndices.contains(userIndex);
-                  final selectionOrder = isSelected ? selectedUserIndices.indexOf(userIndex) + 1 : null;
-                  return _UserCard(
-                    user: users[userIndex],
+
+                  final selectionOrder = isSelected
+                      ? selectedUserIndices.indexOf(userIndex) + 1
+                      : null;
+
+                  return _UserGridCard(
+                    user: user,
                     isSelected: isSelected,
                     selectionOrder: selectionOrder,
+                    activeColor: selectionOrder == 1 ? colorUser1 : colorUser2,
                     onTap: () => _selectUser(userIndex),
+                    onEdit: () => _editUser(userIndex),
                   );
                 },
-              ),
-            ),
-            const SizedBox(height: 40),
-            Expanded(
-              child: Center(
-                child: RemoteControlDpad(
-                  size: 280,
-                  onUp: () => _sendCommand('up'),
-                  onDown: () => _sendCommand('down'),
-                  onLeft: () => _sendCommand('left'),
-                  onRight: () => _sendCommand('right'),
-                  onCenter: () => _sendCommand('center'),
-                ),
               ),
             ),
           ],
@@ -374,105 +369,101 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 
-  void _sendCommand(String direction) {
-    if (selectedUserIndices.isNotEmpty) {
-      final userNames = selectedUserIndices.map((idx) => users[idx].name).join(", ");
-      print('[ControlScreen] 수동 제어: $direction (사용자: $userNames)');
-    } else {
-      print('[ControlScreen] 수동 제어: $direction (사용자 선택 없음)');
-    }
-
-    try {
-      AnalyticsService.onManualControl(direction, null);
-    } catch (e) {
-      print('[ControlScreen] AnalyticsService 오류: $e');
-    }
-
-    // BLE로 수동 제어 명령 전송
-    final selectedUsers = selectedUserIndices.map((idx) => users[idx].name).toList();
-    widget.onUserDataSend?.call({
-      'action': 'manual_control',
-      'direction': direction,
-      'users': selectedUsers,
-      'user': selectedUserIndices.isNotEmpty ? users[selectedUserIndices[0]].name : null, // 하위 호환성
-      'timestamp': DateTime.now().toIso8601String(),
-    });
+  Widget _buildSelectionHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      child: Row(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "AI 트래킹 타겟",
+                style: TextStyle(
+                  fontFamily: 'Sen',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: textMain,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                selectedUserIndices.isEmpty
+                    ? "최대 두 명까지 선택 가능합니다."
+                    : "${selectedUserIndices.length} 선택 중",
+                style: TextStyle(
+                  fontFamily: 'Sen',
+                  fontSize: 14,
+                  color: selectedUserIndices.isEmpty
+                      ? textSub
+                      : colorUser1,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          if (selectedUserIndices.isNotEmpty)
+            TextButton.icon(
+              onPressed: _clearAllSelections,
+              icon: const Icon(Icons.refresh_rounded, size: 16, color: textSub),
+              label: const Text(
+                "선택 초기화",
+                style: TextStyle(
+                    fontFamily: 'Sen',
+                    color: textSub,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13
+                ),
+              ),
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                    side: BorderSide(color: Colors.grey.withOpacity(0.2))
+                ),
+                elevation: 0,
+              ),
+            )
+        ],
+      ),
+    );
   }
-}
 
-// UserProfile, _AddUserCard, _UserCard 클래스는 동일
-class UserProfile {
-  final String name;
-  final String? avatarUrl;
-  final String? imagePath;
-
-  UserProfile({
-    required this.name,
-    this.avatarUrl,
-    this.imagePath,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'name': name,
-    'avatarUrl': avatarUrl,
-    'imagePath': imagePath,
-  };
-
-  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
-    name: json['name'] as String,
-    avatarUrl: json['avatarUrl'] as String?,
-    imagePath: json['imagePath'] as String?,
-  );
-}
-
-class _AddUserCard extends StatelessWidget {
-  final VoidCallback onTap;
-  const _AddUserCard({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildAddUserCard() {
     return GestureDetector(
-      onTap: onTap,
+      onTap: _addUser,
       child: Container(
-        width: 90,
-        height: 90,
-        margin: const EdgeInsets.only(right: 10),
-        padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: const Color(0xFFE2E8F0),
+            width: 2,
+          ),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF1F5F9),
                 shape: BoxShape.circle,
-                color: const Color(0xFF437EFF).withOpacity(0.1),
               ),
-              child: const Icon(
-                Icons.add,
-                color: Color(0xFF437EFF),
-                size: 30,
-              ),
+              child: const Icon(Icons.add_rounded, color: Color(0xFF94A3B8), size: 28),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 12),
             const Text(
-              '추가',
+              "사용자 추가",
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF282840),
                 fontFamily: 'Sen',
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF94A3B8),
               ),
             ),
           ],
@@ -482,49 +473,62 @@ class _AddUserCard extends StatelessWidget {
   }
 }
 
-class _UserCard extends StatelessWidget {
+class UserProfile {
+  final String name;
+  final String? avatarUrl;
+  final String? imagePath;
+  final String? userId;
+
+  UserProfile({required this.name, this.avatarUrl, this.imagePath, this.userId});
+
+  Map<String, dynamic> toJson() => {'name': name, 'avatarUrl': avatarUrl, 'imagePath': imagePath, 'userId': userId};
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(name: json['name'], avatarUrl: json['avatarUrl'], imagePath: json['imagePath'], userId: json['userId']);
+}
+
+class _UserGridCard extends StatelessWidget {
   final UserProfile user;
   final bool isSelected;
-  final int? selectionOrder; // 1 또는 2
+  final int? selectionOrder;
+  final Color activeColor;
   final VoidCallback onTap;
+  final VoidCallback onEdit;
 
-  const _UserCard({
+  const _UserGridCard({
     required this.user,
     required this.isSelected,
     this.selectionOrder,
+    required this.activeColor,
     required this.onTap,
+    required this.onEdit,
   });
 
   @override
   Widget build(BuildContext context) {
-    // 선택 순서에 따른 색상 결정
-    final borderColor = selectionOrder == 1
-        ? const Color(0xFF437EFF) // 파란색 (1번)
-        : selectionOrder == 2
-            ? const Color(0xFF4CAF50) // 초록색 (2번)
-            : const Color(0xFF437EFF); // 기본 파란색
-
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 90,
-        height: 90,
-        margin: const EdgeInsets.only(right: 10),
-        padding: const EdgeInsets.all(15),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          border: isSelected
-              ? Border.all(color: borderColor, width: 3)
-              : null,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+              color: isSelected ? activeColor : Colors.transparent,
+              width: isSelected ? 2.5 : 0
+          ),
           boxShadow: [
-            BoxShadow(
-              color: isSelected
-                  ? borderColor.withOpacity(0.2)
-                  : Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
+            if (isSelected)
+              BoxShadow(
+                color: activeColor.withOpacity(0.25),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              )
+            else
+              BoxShadow(
+                color: const Color(0xFFCBD5E1).withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
           ],
         ),
         child: Stack(
@@ -532,79 +536,108 @@ class _UserCard extends StatelessWidget {
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFFECF0F4),
+                Center(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: isSelected ? 76 : 72,
+                    height: isSelected ? 76 : 72,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isSelected ? activeColor.withOpacity(0.2) : Colors.transparent,
+                        width: isSelected ? 4 : 0,
+                      ),
+                    ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(0xFFF8FAFC),
+                          image: user.imagePath != null
+                              ? DecorationImage(image: FileImage(File(user.imagePath!)), fit: BoxFit.cover)
+                              : null
+                      ),
+                      child: user.imagePath == null
+                          ? Icon(Icons.person, size: 32, color: Colors.grey[300])
+                          : null,
+                    ),
                   ),
-                  child: ClipOval(
-                    child: user.imagePath != null
-                        ? Image.file(
-                            File(user.imagePath!),
-                            fit: BoxFit.cover,
-                            width: 50,
-                            height: 50,
-                          )
-                        : user.avatarUrl != null
-                            ? Image.network(
-                                user.avatarUrl!,
-                                fit: BoxFit.cover,
-                                width: 50,
-                                height: 50,
-                              )
-                            : Icon(
-                                Icons.person,
-                                size: 30,
-                                color: Colors.grey.shade400,
-                              ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    user.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Sen',
+                      fontSize: 16,
+                      color: isSelected ? activeColor : const Color(0xFF1E293B),
+                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  user.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF282840),
-                    fontFamily: 'Sen',
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isSelected ? activeColor.withOpacity(0.1) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    isSelected ? "활성 중" : "탭하여 선택하세요",
+                    style: TextStyle(
+                      fontFamily: 'Sen',
+                      fontSize: 11,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                      color: isSelected ? activeColor : const Color(0xFF94A3B8),
+                    ),
                   ),
                 ),
               ],
             ),
-            // 선택 순서 배지 (왼쪽 상단)
-            if (selectionOrder != null)
-              Positioned(
-                top: 0,
-                left: 0,
+            Positioned(
+              top: 10,
+              right: 10,
+              child: GestureDetector(
+                onTap: onEdit,
                 child: Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: borderColor,
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF1F5F9),
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.more_horiz_rounded, size: 16, color: Color(0xFF64748B)),
+                ),
+              ),
+            ),
+            if (isSelected && selectionOrder != null)
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    color: activeColor,
+                    shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
+                        color: activeColor.withOpacity(0.4),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
-                      ),
+                      )
                     ],
+                    border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: Center(
-                    child: Text(
-                      '$selectionOrder',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Sen',
-                      ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    "$selectionOrder",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      fontFamily: 'Sen',
                     ),
                   ),
                 ),

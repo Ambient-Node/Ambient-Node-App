@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../utils/snackbar_helper.dart';
 
 class UserRegistrationScreen extends StatefulWidget {
   final String? existingName;
@@ -23,6 +24,13 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   final ImagePicker _picker = ImagePicker();
   XFile? _imageFile;
 
+  static const Color bgWhite = Colors.white;
+  static const Color bgGrey = Color(0xFFF6F7F8);
+  static const Color primaryBlue = Color(0xFF3A91FF);
+  static const Color textDark = Color(0xFF2D3142);
+  static const Color textGrey = Color(0xFF949BA5);
+  static const Color inputFill = Color(0xFFF0F2F5);
+
   @override
   void initState() {
     super.initState();
@@ -40,39 +48,19 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     super.dispose();
   }
 
-  Future<void> _pickImageFromCamera() async {
+  Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
+        source: source,
         maxWidth: 800,
         maxHeight: 800,
         imageQuality: 85,
       );
       if (image != null) {
-        setState(() {
-          _imageFile = image;
-        });
+        setState(() => _imageFile = image);
       }
     } catch (e) {
-      _showErrorSnackBar('카메라 접근 권한이 필요합니다');
-    }
-  }
-
-  Future<void> _pickImageFromGallery() async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 800,
-        maxHeight: 800,
-        imageQuality: 85,
-      );
-      if (image != null) {
-        setState(() {
-          _imageFile = image;
-        });
-      }
-    } catch (e) {
-      _showErrorSnackBar('갤러리 접근 권한이 필요합니다');
+      showAppSnackBar(context, '접근 권한이 필요합니다', type: AppSnackType.error);
     }
   }
 
@@ -82,67 +70,64 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         decoration: const BoxDecoration(
-          color: Color(0xFF2B2D42),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 20),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(2),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              _buildImageSourceOption(
-                icon: Icons.camera_alt_rounded,
-                label: '카메라로 촬영',
-                onTap: () {
+                const SizedBox(height: 24),
+                _buildImageOption(Icons.camera_alt_rounded, 'Camera', () {
                   Navigator.pop(context);
-                  _pickImageFromCamera();
-                },
-              ),
-              _buildImageSourceOption(
-                icon: Icons.photo_library_rounded,
-                label: '앨범에서 선택',
-                onTap: () {
+                  _pickImage(ImageSource.camera);
+                }),
+                _buildImageOption(Icons.photo_library_rounded, 'Gallery', () {
                   Navigator.pop(context);
-                  _pickImageFromGallery();
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
+                  _pickImage(ImageSource.gallery);
+                }),
+                const SizedBox(height: 10),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildImageSourceOption({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildImageOption(IconData icon, String label, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 30),
         child: Row(
           children: [
-            Icon(icon, color: const Color(0xFF5AB0FF), size: 28),
-            const SizedBox(width: 16),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: primaryBlue.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: primaryBlue, size: 24),
+            ),
+            const SizedBox(width: 20),
             Text(
               label,
               style: const TextStyle(
-                color: Colors.white,
+                color: textDark,
                 fontSize: 16,
                 fontFamily: 'Sen',
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -151,27 +136,16 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     );
   }
 
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red.shade400,
-        duration: const Duration(milliseconds: 1500), // 1.5초로 단축
-      ),
-    );
-  }
-
   void _handleRegister() {
     if (_imageFile == null) {
-      _showErrorSnackBar('얼굴 사진을 등록해주세요');
+      showAppSnackBar(context, '프로필 사진을 등록해주세요', type: AppSnackType.error);
       return;
     }
     if (_nameController.text.trim().isEmpty) {
-      _showErrorSnackBar('이름을 입력해주세요');
+      showAppSnackBar(context, '이름을 입력해주세요', type: AppSnackType.error);
       return;
     }
 
-    // 사용자 데이터를 반환하고 화면 닫기
     Navigator.pop(context, {
       'action': 'register',
       'name': _nameController.text.trim(),
@@ -180,274 +154,225 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   }
 
   void _handleDelete() {
-    if (!widget.isEditMode) {
-      _showErrorSnackBar('등록된 사용자가 아닙니다');
-      return;
-    }
+    if (!widget.isEditMode) return;
 
-    // 삭제 확인 다이얼로그
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2B2D42),
-        title: const Text(
-          '사용자 삭제',
-          style: TextStyle(color: Colors.white, fontFamily: 'Sen'),
-        ),
-        content: Text(
-          '${widget.existingName}을(를) 삭제하시겠습니까?',
-          style: const TextStyle(color: Colors.white70, fontFamily: 'Sen'),
-        ),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('유저 삭제', style: TextStyle(fontFamily: 'Sen', fontWeight: FontWeight.bold, color: textDark)),
+        content: const Text('이 사용자를 정말 삭제하시겠습니까?', style: TextStyle(fontFamily: 'Sen', color: textGrey)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
-              '취소',
-              style: TextStyle(color: Color(0xFF5AB0FF), fontFamily: 'Sen'),
-            ),
+            child: const Text('취소', style: TextStyle(fontFamily: 'Sen', color: textGrey)),
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context); // 다이얼로그 닫기
-              Navigator.pop(context, {'action': 'delete'}); // 등록 화면 닫기
+              Navigator.pop(context);
+              Navigator.pop(context, {'action': 'delete'});
             },
-            child: const Text(
-              '삭제',
-              style: TextStyle(color: Colors.red, fontFamily: 'Sen'),
-            ),
+            child: const Text('삭제', style: TextStyle(fontFamily: 'Sen', color: Colors.red, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
 
+  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF2B2D42),
+      backgroundColor: bgWhite,
+      appBar: AppBar(
+        backgroundColor: bgWhite,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: textDark),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          widget.isEditMode ? '프로필 수정' : '새 프로필',
+          style: const TextStyle(
+            color: textDark,
+            fontFamily: 'Sen',
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+          ),
+        ),
+        centerTitle: true,
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 20),
-                // 뒤로가기 버튼
-                IconButton(
-                  icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-                  onPressed: () => Navigator.pop(context),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(height: 60),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(height: 30),
 
-                // 제목
-                const Text(
-                  '사용자 등록',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 36,
-                    fontFamily: 'Sen',
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 50),
-
-                // 얼굴 사진 등록
-                Center(
-                  child: GestureDetector(
-                    onTap: _showImageSourceDialog,
-                    child: Stack(
-                      children: [
-                        Container(
-                          width: 140,
-                          height: 140,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: const Color(0xFF3D4054),
-                            border: Border.all(
-                              color: const Color(0xFF5AB0FF).withOpacity(0.3),
-                              width: 3,
+              Center(
+                child: GestureDetector(
+                  onTap: _showImageSourceDialog,
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: 140,
+                        height: 140,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: inputFill,
+                          border: Border.all(color: Colors.white, width: 4),
+                          boxShadow: [
+                            BoxShadow(
+                              color: primaryBlue.withOpacity(0.2),
+                              blurRadius: 20,
+                              offset: const Offset(0, 8),
                             ),
+                          ],
+                        ),
+                        child: _imageFile == null
+                            ? const Icon(Icons.person_rounded, size: 60, color: Color(0xFFC4C9D3))
+                            : ClipOval(
+                          child: Image.file(
+                            File(_imageFile!.path),
+                            fit: BoxFit.cover,
+                            width: 140,
+                            height: 140,
+                          ),
+                        ),
+                      ),
+
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: textDark,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 15,
-                                offset: const Offset(0, 5),
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
                               ),
                             ],
                           ),
-                          child: _imageFile == null
-                              ? Icon(
-                                  Icons.person_outline,
-                                  size: 60,
-                                  color: Colors.white.withOpacity(0.3),
-                                )
-                              : ClipOval(
-                                  child: Image.file(
-                                    File(_imageFile!.path),
-                                    fit: BoxFit.cover,
-                                    width: 140,
-                                    height: 140,
-                                  ),
-                                ),
+                          child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 18),
                         ),
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Color(0xFF5AB0FF),
-                            ),
-                            child: const Icon(
-                              Icons.camera_alt_rounded,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 40),
-
-                // 이름 입력
-                const Text(
-                  'Your Name',
-                  style: TextStyle(
-                    color: Color(0xFF9DA4B4),
-                    fontSize: 14,
-                    fontFamily: 'Sen',
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF3D4054),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
                       ),
                     ],
                   ),
-                  child: TextField(
-                    controller: _nameController,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontFamily: 'Sen',
-                      fontWeight: FontWeight.w400,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Enter your name',
-                      hintStyle: TextStyle(
-                        color: Colors.white.withOpacity(0.3),
+                ),
+              ),
+
+              const SizedBox(height: 40),
+
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      "기기 이름",
+                      style: TextStyle(
                         fontFamily: 'Sen',
-                      ),
-                      prefixIcon: Icon(
-                        Icons.person_outline,
-                        color: const Color(0xFF5AB0FF).withOpacity(0.7),
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 18,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: textDark,
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 60),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: inputFill,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: TextField(
+                      controller: _nameController,
+                      style: const TextStyle(
+                        fontFamily: 'Sen',
+                        fontSize: 16,
+                        color: textDark,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: "사용자 이름을 입력하세요.",
+                        hintStyle: TextStyle(
+                          fontFamily: 'Sen',
+                          color: textGrey.withOpacity(0.7),
+                        ),
+                        prefixIcon: const Icon(Icons.person_outline_rounded, color: textGrey),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
 
-                // 등록 및 삭제 버튼
-                Row(
-                  children: [
-                    // 등록 버튼
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _handleRegister,
-                        child: Container(
-                          height: 60,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF5AB0FF), Color(0xFF3A90FF)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF3A90FF).withOpacity(0.4),
-                                blurRadius: 15,
-                                offset: const Offset(0, 5),
-                              ),
-                            ],
-                          ),
-                          child: const Center(
-                            child: Text(
-                              '등록',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontFamily: 'Sen',
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+              const SizedBox(height: 50),
+
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _handleRegister,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryBlue,
+                    elevation: 4,
+                    shadowColor: primaryBlue.withOpacity(0.4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    const SizedBox(width: 12),
-                    // 삭제 버튼
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _handleDelete,
-                        child: Container(
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF3D4054),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.red.withOpacity(0.5),
-                              width: 2,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 10,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: const Center(
-                            child: Text(
-                              '삭제',
-                              style: TextStyle(
-                                color: Colors.red,
-                                fontSize: 16,
-                                fontFamily: 'Sen',
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                  ),
+                  child: const Text(
+                    "Save Profile",
+                    style: TextStyle(
+                      fontFamily: 'Sen',
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 30),
-              ],
-            ),
+              ),
+
+              const SizedBox(height: 16),
+
+              if (widget.isEditMode)
+                TextButton(
+                  onPressed: _handleDelete,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red[400],
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red[400]),
+                      const SizedBox(width: 8),
+                      const Text(
+                        "Delete User",
+                        style: TextStyle(
+                          fontFamily: 'Sen',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 20),
+            ],
           ),
         ),
       ),

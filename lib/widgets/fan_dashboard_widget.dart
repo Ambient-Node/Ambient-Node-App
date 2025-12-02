@@ -1,17 +1,26 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:ambient_node/widgets/app_top_bar.dart';
-import 'package:ambient_node/services/analytics_service.dart';
+import 'package:ambient_node/screens/timer_setting_screen.dart';
+import 'package:ambient_node/widgets/remote_control_dpad.dart';
+import 'package:ambient_node/utils/snackbar_helper.dart';
 
 class FanDashboardWidget extends StatefulWidget {
   final bool connected;
   final VoidCallback onConnect;
-  final int speed; // 0~100
-  final Function(double) setSpeed; // keep existing API (double)
-  final bool trackingOn;
-  final Function(bool) setTrackingOn;
+  final int speed;
+  final Function(double) setSpeed;
+
+  final String movementMode; // 'manual', 'rotation', 'ai_tracking'
+  final bool isNaturalWind;  // true/false
+  final Function(String) onMovementModeChange;
+  final Function(bool) onNaturalWindChange;
+
+  final Function(int) onTimerSet;
   final VoidCallback openAnalytics;
-  final String deviceName; // optional BT name
+  final Function(String, int) onManualControl;
+  final String deviceName;
   final String? selectedUserName;
   final String? selectedUserImagePath;
 
@@ -21,9 +30,13 @@ class FanDashboardWidget extends StatefulWidget {
     required this.onConnect,
     required this.speed,
     required this.setSpeed,
-    required this.trackingOn,
-    required this.setTrackingOn,
+    required this.movementMode,
+    required this.isNaturalWind,
+    required this.onMovementModeChange,
+    required this.onNaturalWindChange,
+    required this.onTimerSet,
     required this.openAnalytics,
+    required this.onManualControl,
     this.deviceName = 'Ambient',
     this.selectedUserName,
     this.selectedUserImagePath,
@@ -38,15 +51,9 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   late final AnimationController _controller;
   static const Color _fanBlue = Color(0xFF3A91FF);
 
-  Widget _wrapMaxWidth(Widget child) {
-    return Align(
-      alignment: Alignment.center,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: child,
-      ),
-    );
-  }
+  bool _isRemoteActive = false;
+  Timer? _countdownTimer;
+  Duration? _remainingTime;
 
   @override
   void initState() {
@@ -62,260 +69,240 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
   @override
   void didUpdateWidget(FanDashboardWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 블루투스 연결 상태 또는 속도가 변경되면 애니메이션 업데이트
-    if (widget.connected != oldWidget.connected ||
-        widget.speed != oldWidget.speed) {
+
+    if (widget.movementMode != oldWidget.movementMode) {
+      if (widget.movementMode != 'manual') {
+        _isRemoteActive = false;
+      }
+      _updateRotation();
+    }
+
+    if (widget.isNaturalWind != oldWidget.isNaturalWind) {
+      _updateRotation();
+    }
+
+    if (widget.connected != oldWidget.connected) {
+      if (!widget.connected) {
+        _isRemoteActive = false;
+        _controller.stop();
+      } else {
+        _updateRotation();
+      }
+    } else if (widget.speed != oldWidget.speed) {
       _updateRotation();
     }
   }
 
-  Widget _roundControlButton({
-    required IconData icon,
-    required VoidCallback onTap,
-    required Color color,
-    double iconSize = 15,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(40),
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-          border: Border.all(color: color, width: 4),
-        ),
-        child: Icon(icon, size: iconSize, color: color),
-      ),
-    );
+  @override
+  void dispose() {
+    _controller.dispose();
+    _countdownTimer?.cancel();
+    super.dispose();
   }
 
   void _updateRotation() {
-    // 블루투스 연결 + 속도 > 0 일 때만 회전
-    if (widget.connected && widget.speed > 0) {
-      final duration =
-          Duration(milliseconds: (2500 ~/ ((widget.speed / 20).clamp(1, 5))));
-      _controller.duration = duration;
+    if (!widget.connected) {
+      _controller.stop();
+      return;
+    }
+
+    if (widget.speed > 0 || widget.isNaturalWind) {
+      int durationMs;
+      if (widget.isNaturalWind) {
+        durationMs = 2400;
+      } else {
+        durationMs = 2400 ~/ widget.speed;
+      }
+      _controller.duration = Duration(milliseconds: durationMs);
       _controller.repeat();
     } else {
       _controller.stop();
     }
   }
 
-  Widget _buildFanBlades(Color color) {
-    Widget blade(double angle) {
-      return Transform.rotate(
-        angle: angle,
-        child: Container(
-          width: 24,
-          height: 110,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                color.withOpacity(0.9),
-                color.withOpacity(0.2),
-              ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.3),
-                blurRadius: 5,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (_, __) {
-        return Transform.rotate(
-          angle: _controller.value * 2 * math.pi,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              blade(0),
-              blade(2 * math.pi / 3),
-              blade(4 * math.pi / 3),
-              // center hub
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      color.withOpacity(0.9),
-                      color.withOpacity(0.3),
-                    ],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-              ),
-              // reflective highlight
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      Colors.white.withOpacity(0.3),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+  Future<void> _handleTimerSetting() async {
+    final result = await Navigator.push<Duration>(
+      context,
+      MaterialPageRoute(builder: (context) => TimerSettingScreen(initialDuration: _remainingTime)),
     );
+
+    if (result != null) {
+      widget.onTimerSet(result.inSeconds);
+
+      _countdownTimer?.cancel();
+      if (result.inSeconds == 0) {
+        setState(() => _remainingTime = null);
+      } else {
+        setState(() => _remainingTime = result);
+        _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (!mounted) return;
+          setState(() {
+            if (_remainingTime!.inSeconds > 0) {
+              _remainingTime = _remainingTime! - const Duration(seconds: 1);
+            } else {
+              _remainingTime = null;
+              timer.cancel();
+            }
+          });
+        });
+      }
+    }
+  }
+
+  String _formatDuration(Duration d) {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    return "${twoDigits(d.inHours)}:${twoDigits(d.inMinutes.remainder(60))}:${twoDigits(d.inSeconds.remainder(60))}";
+  }
+
+  void _showNatureModeWarning() {
+    showAppSnackBar(context, "자연풍 모드에서는 풍량을 조절할 수 없습니다.\n자연풍을 먼저 꺼주세요.", type: AppSnackType.info);
   }
 
   @override
   Widget build(BuildContext context) {
-    final safeSpeed = widget.speed.clamp(0, 100);
-    // 블루투스 연결 + 속도 > 0 일 때만 파란색
-    final color = (widget.connected && widget.speed > 0)
-        ? _fanBlue
-        : Colors.grey.shade400;
+    final currentSpeed = widget.speed;
+
+    final bool canControlSpeed = widget.connected && !widget.isNaturalWind;
+    final Color controlColor = canControlSpeed ? _fanBlue : Colors.grey.shade300;
 
     return DefaultTextStyle.merge(
       style: const TextStyle(fontFamily: 'Sen'),
       child: Column(
         children: [
-          // 상단바는 패딩 없이 표시
           AppTopBar(
             deviceName: widget.connected ? widget.deviceName : "Ambient",
-            subtitle: widget.selectedUserName != null
-                ? '${widget.selectedUserName} 선택 중'
-                : "Lab Fan",
-            connected: widget.connected, // 블루투스 연결 상태
+            subtitle: widget.selectedUserName != null ? '${widget.selectedUserName}님' : "대시보드",
+            connected: widget.connected,
             onConnectToggle: widget.onConnect,
             userImagePath: widget.selectedUserImagePath,
           ),
-          // 나머지 컨텐츠는 스크롤 가능
+
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              physics: const BouncingScrollPhysics(),
               child: Column(
                 children: [
-                  _wrapMaxWidth(Container(
+                  if (_remainingTime != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _fanBlue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: _fanBlue.withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          "${_formatDuration(_remainingTime!)} 후 종료",
+                          style: const TextStyle(color: _fanBlue, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ),
+                    ),
+
+                  Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 32, horizontal: 16),
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE0E3E7)),
+                      borderRadius: BorderRadius.circular(32),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 24, offset: const Offset(0, 8)),
+                      ],
                     ),
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Center(
-                          child: Container(
-                            width: 240,
-                            height: 240,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: const Color(0xFFF6F8FB),
-                              gradient: const RadialGradient(
-                                colors: [Color(0xFFFFFFFF), Color(0xFFF0F3F8)],
-                                radius: 0.95,
+                        SizedBox(
+                          height: 180,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Container(
+                                width: 160, height: 160,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: const RadialGradient(colors: [Colors.white, Color(0xFFF0F5FA)]),
+                                  border: Border.all(color: const Color(0xFFEEF2F6), width: 1),
+                                ),
                               ),
-                              border: Border.all(
-                                  color: Color(0xFFE5E9F0), width: 6),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: color.withOpacity(0.3),
-                                  blurRadius: 30,
-                                  spreadRadius: 10,
+                              _buildFanBlades((widget.speed > 0 || widget.isNaturalWind) ? _fanBlue : Colors.grey.shade400),
+                              if (widget.isNaturalWind && widget.connected)
+                                Positioned(top: 0, right: 0, child: Icon(Icons.grass, color: Colors.green[400], size: 28)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _roundControlButton(
+                              icon: Icons.remove,
+                              color: controlColor,
+                              onTap: canControlSpeed
+                                  ? () => widget.setSpeed(((currentSpeed - 1).clamp(0, 5)).toDouble())
+                                  : () { if (widget.isNaturalWind && widget.connected) _showNatureModeWarning(); },
+                            ),
+                            const SizedBox(width: 24),
+                            Column(
+                              children: [
+                                Text(
+                                  widget.isNaturalWind ? "Nature" : '$currentSpeed',
+                                  style: TextStyle(
+                                    fontSize: widget.isNaturalWind ? 24 : 36,
+                                    fontWeight: FontWeight.w800,
+                                    color: widget.isNaturalWind ? Colors.green[400] : (widget.connected ? _fanBlue : Colors.grey),
+                                    height: 1.0,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                    widget.isNaturalWind ? "자연풍" : "FAN SPEED",
+                                    style: TextStyle(color: Colors.grey[400], fontSize: 10, fontWeight: FontWeight.bold)
                                 ),
                               ],
                             ),
-                            child: Center(child: _buildFanBlades(color)),
-                          ),
+                            const SizedBox(width: 24),
+                            _roundControlButton(
+                              icon: Icons.add,
+                              color: controlColor,
+                              onTap: canControlSpeed
+                                  ? () => widget.setSpeed(((currentSpeed + 1).clamp(0, 5)).toDouble())
+                                  : () { if (widget.isNaturalWind && widget.connected) _showNatureModeWarning(); },
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 20),
-                        Builder(builder: (context) {
-                          // 블루투스 연결 상태에 따라 색상 변경
-                          final controlColor =
-                              widget.connected && widget.speed > 0
-                                  ? _fanBlue
-                                  : const Color(0xFF838799);
+                      ],
+                    ),
+                  ),
 
-                          return Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              _roundControlButton(
-                                icon: Icons.remove,
-                                onTap: widget.connected
-                                    ? () => widget.setSpeed(
-                                        ((safeSpeed - 20).clamp(0, 100))
-                                            .toDouble())
-                                    : () {}, // 블루투스 꺼져있으면 아무 동작 안함
-                                color: widget.connected
-                                    ? controlColor
-                                    : Colors.grey.shade300,
-                                iconSize: 20,
-                              ),
-                              Text(
-                                '${(safeSpeed / 20).round()}',
-                                style: TextStyle(
-                                  fontSize: 40,
-                                  fontWeight: FontWeight.w700,
-                                  color: controlColor,
-                                ),
-                              ),
-                              _roundControlButton(
-                                icon: Icons.add,
-                                onTap: widget.connected
-                                    ? () => widget.setSpeed(
-                                        ((safeSpeed + 20).clamp(0, 100))
-                                            .toDouble())
-                                    : () {}, // 블루투스 꺼져있으면 아무 동작 안함
-                                color: widget.connected
-                                    ? controlColor
-                                    : Colors.grey.shade300,
-                                iconSize: 20,
-                              ),
-                            ],
-                          );
-                        }),
-                        const SizedBox(height: 8),
-                        const Text(
-                          "Speed Level",
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  )),
-                  const SizedBox(height: 24),
-                  _wrapMaxWidth(Container(
-                    width: double.infinity,
-                    child: Row(
-                      children: [
-                        Expanded(child: _infoCard("오늘 사용", "3.5h")),
-                        const SizedBox(width: 16),
-                        Expanded(child: _infoCard("연속 가동", "1.1h")),
-                      ],
-                    ),
-                  )),
                   const SizedBox(height: 16),
+
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    width: double.infinity,
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(32),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
+                      ],
+                    ),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      transitionBuilder: (Widget child, Animation<double> animation) {
+                        return FadeTransition(opacity: animation, child: child);
+                      },
+                      child: _isRemoteActive
+                          ? _buildRemoteControlPanel()
+                          : _buildFunctionButtonsRow(),
+                    ),
+                  ),
+                  const SizedBox(height: 30),
                 ],
               ),
             ),
@@ -325,55 +312,175 @@ class _FanDashboardWidgetState extends State<FanDashboardWidget>
     );
   }
 
-  Widget _infoCard(String label, String value) {
-    return Container(
-      height: 115,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+  Widget _buildFunctionButtonsRow() {
+    return Row(
+      key: const ValueKey('buttons'),
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        _buildFunctionButton(
+          icon: Icons.timer_outlined,
+          label: "타이머",
+          isActive: _remainingTime != null,
+          onTap: _handleTimerSetting,
+        ),
+
+        _buildFunctionButton(
+          icon: Icons.face,
+          label: "AI 트래킹",
+          isActive: widget.movementMode == 'ai_tracking',
+          onTap: () {
+            final nextMode = widget.movementMode == 'ai_tracking' ? 'manual' : 'ai_tracking';
+            widget.onMovementModeChange(nextMode);
+          },
+        ),
+
+        _buildFunctionButton(
+          icon: Icons.sync,
+          label: "회전",
+          isActive: widget.movementMode == 'rotation',
+          onTap: () {
+            final nextMode = widget.movementMode == 'rotation' ? 'manual' : 'rotation';
+            widget.onMovementModeChange(nextMode);
+          },
+        ),
+
+        _buildFunctionButton(
+          icon: Icons.grass,
+          label: "자연풍",
+          isActive: widget.isNaturalWind,
+          onTap: () {
+            widget.onNaturalWindChange(!widget.isNaturalWind);
+          },
+        ),
+
+        _buildFunctionButton(
+          icon: Icons.gamepad_outlined,
+          label: "리모컨",
+          isActive: false,
+          onTap: () {
+            if (widget.movementMode != 'manual') {
+              widget.onMovementModeChange('manual');
+            }
+            setState(() {
+              _isRemoteActive = true;
+            });
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRemoteControlPanel() {
+    return Column(
+      key: const ValueKey('remote'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10, left: 8, right: 0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "수동 회전 조작",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D3142)),
+              ),
+              IconButton(
+                onPressed: () => setState(() => _isRemoteActive = false),
+                icon: const Icon(Icons.close_rounded, color: Colors.grey),
+                visualDensity: VisualDensity.compact,
+              )
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 240,
+          child: RemoteControlDpad(
+            size: 220,
+            onUp: () => widget.onManualControl('up', 1),
+            onUpEnd: () => widget.onManualControl('up', 0),
+            onDown: () => widget.onManualControl('down', 1),
+            onDownEnd: () => widget.onManualControl('down', 0),
+            onLeft: () => widget.onManualControl('left', 1),
+            onLeftEnd: () => widget.onManualControl('left', 0),
+            onRight: () => widget.onManualControl('right', 1),
+            onRightEnd: () => widget.onManualControl('right', 0),
+            onCenter: () => widget.onManualControl('center', 1),
+            onCenterEnd: () => widget.onManualControl('center', 0),
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    );
+  }
+
+  Widget _roundControlButton({required IconData icon, required VoidCallback onTap, required Color color}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(40),
+      child: Container(
+        width: 50, height: 50,
+        decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+        child: Icon(icon, size: 24, color: color),
+      ),
+    );
+  }
+
+  Widget _buildFunctionButton({required IconData icon, required String label, required bool isActive, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: widget.connected ? onTap : null,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 48, height: 48,
+            decoration: BoxDecoration(
+              color: isActive ? _fanBlue : const Color(0xFFF5F7FA),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: isActive ? [BoxShadow(color: _fanBlue.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4))] : [],
+            ),
+            child: Icon(icon, color: isActive ? Colors.white : Colors.grey[500], size: 22),
+          ),
+          const SizedBox(height: 6),
+          Text(
+              label,
+              style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isActive ? _fanBlue : Colors.grey[400]
+              )
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+
+  Widget _buildFanBlades(Color color) {
+    Widget blade(double angle) {
+      return Transform.rotate(
+        angle: angle,
+        child: Container(
+          width: 20, height: 85,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [color.withOpacity(0.9), color.withOpacity(0.2)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      );
+    }
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (_, __) => Transform.rotate(
+        angle: _controller.value * 2 * math.pi,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 40,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF32343E),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Color(0xFF838699),
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            blade(0),
+            blade(2 * math.pi / 3),
+            blade(4 * math.pi / 3),
+            Container(width: 32, height: 32, decoration: BoxDecoration(shape: BoxShape.circle, color: color, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]))
           ],
         ),
       ),
     );
   }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
 }
-
-// removed painter (replaced by gradient rectangular blades)

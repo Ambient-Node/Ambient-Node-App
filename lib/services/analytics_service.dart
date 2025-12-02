@@ -2,16 +2,13 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_analytics.dart';
 
-/// 사용자 분석 데이터를 관리하는 서비스
 class AnalyticsService {
   static const String _analyticsKey = 'user_analytics';
 
-  // 현재 활성 세션들
   static FanSession? _currentFanSession;
   static FaceTrackingSession? _currentFaceTrackingSession;
   static String? _currentUser;
 
-  /// 사용자별 분석 데이터 불러오기
   static Future<Map<String, UserAnalytics>> loadAllAnalytics() async {
     final prefs = await SharedPreferences.getInstance();
     final analyticsJson = prefs.getString(_analyticsKey);
@@ -25,13 +22,11 @@ class AnalyticsService {
         ));
   }
 
-  /// 특정 사용자 분석 데이터 불러오기
   static Future<UserAnalytics?> getUserAnalytics(String username) async {
     final allAnalytics = await loadAllAnalytics();
     return allAnalytics[username];
   }
 
-  /// 분석 데이터 저장
   static Future<void> saveAnalytics(
       Map<String, UserAnalytics> analytics) async {
     final prefs = await SharedPreferences.getInstance();
@@ -41,9 +36,7 @@ class AnalyticsService {
     await prefs.setString(_analyticsKey, analyticsJson);
   }
 
-  /// 사용자 변경 시 이전 세션 종료 및 새 사용자 설정
   static void onUserChanged(String? newUser) {
-    // 이전 사용자의 세션 종료 (비동기로 처리하되 결과를 기다리지 않음)
     if (_currentUser != null) {
       _endCurrentFanSession().catchError((e) {
         print('❌ _endCurrentFanSession 오류: $e');
@@ -57,14 +50,11 @@ class AnalyticsService {
     print('👤 사용자 변경됨: $newUser');
   }
 
-  /// 선풍기 전원 켜짐 (속도 > 0)
   static Future<void> onFanPowerOn(int speed) async {
     if (_currentUser == null) return;
 
-    // 이미 세션이 있으면 종료
     await _endCurrentFanSession();
 
-    // 새 세션 시작
     _currentFanSession = FanSession(
       startTime: DateTime.now(),
       endTime: DateTime.now(), // 임시로 현재 시간 설정
@@ -72,7 +62,6 @@ class AnalyticsService {
     );
   }
 
-  /// 선풍기 전원 꺼짐 (속도 = 0)
   static Future<void> onFanPowerOff() async {
     await _endCurrentFanSession();
   }
@@ -159,7 +148,6 @@ class AnalyticsService {
     final analytics = await getUserAnalytics(_currentUser!) ??
         UserAnalytics(username: _currentUser!);
 
-    // 속도별 사용 횟수 업데이트
     final speedCount = Map<int, int>.from(analytics.speedUsageCount);
     speedCount[session.speed] = (speedCount[session.speed] ?? 0) + 1;
 
@@ -172,7 +160,6 @@ class AnalyticsService {
     _currentFanSession = null;
   }
 
-  /// 현재 얼굴 추적 세션 종료
   static Future<void> _endCurrentFaceTrackingSession() async {
     if (_currentUser == null || _currentFaceTrackingSession == null) return;
 
@@ -192,14 +179,12 @@ class AnalyticsService {
     _currentFaceTrackingSession = null;
   }
 
-  /// 사용자 분석 데이터 업데이트
   static Future<void> _updateUserAnalytics(UserAnalytics analytics) async {
     final allAnalytics = await loadAllAnalytics();
     allAnalytics[analytics.username] = analytics;
     await saveAnalytics(allAnalytics);
   }
 
-  /// 일간 분석 데이터 생성
   static Future<AnalyticsData> getDailyAnalytics(
       String username, DateTime date) async {
     final analytics = await getUserAnalytics(username);
@@ -208,32 +193,27 @@ class AnalyticsService {
     final startOfDay = DateTime(date.year, date.month, date.day);
     final endOfDay = startOfDay.add(const Duration(days: 1));
 
-    // 해당 날짜의 팬 세션들 필터링
     final daySessions = analytics.fanSessions.where((session) {
       return session.startTime.isAfter(startOfDay) &&
           session.startTime.isBefore(endOfDay);
     }).toList();
 
-    // 총 사용 시간 계산
     final totalUsageTime = daySessions.fold<Duration>(
       Duration.zero,
       (sum, session) => sum + session.duration,
     );
 
-    // 속도별 사용 시간 계산
     final speedUsageTime = <int, Duration>{};
     for (final session in daySessions) {
       speedUsageTime[session.speed] =
           (speedUsageTime[session.speed] ?? Duration.zero) + session.duration;
     }
 
-    // 수동 제어 횟수
     final manualControlCount = analytics.manualControls.where((control) {
       return control.timestamp.isAfter(startOfDay) &&
           control.timestamp.isBefore(endOfDay);
     }).length;
 
-    // 얼굴 추적 시간
     final faceTrackingTime = analytics.faceTrackingSessions.where((session) {
       return session.startTime.isAfter(startOfDay) &&
           session.startTime.isBefore(endOfDay);
@@ -248,7 +228,6 @@ class AnalyticsService {
     );
   }
 
-  /// 주간 분석 데이터 생성
   static Future<AnalyticsData> getWeeklyAnalytics(
       String username, DateTime weekStart) async {
     final analytics = await getUserAnalytics(username);
@@ -257,14 +236,12 @@ class AnalyticsService {
     final weekEnd = weekStart.add(const Duration(days: 7));
     final dailyUsages = <DailyUsage>[];
 
-    // 주간의 각 날짜별로 분석
     for (int i = 0; i < 7; i++) {
       final date = weekStart.add(Duration(days: i));
       final dayData = await getDailyAnalytics(username, date);
       dailyUsages.add(dayData.dailyUsages.first);
     }
 
-    // 주간 총합 계산
     final totalUsageTime = dailyUsages.fold<Duration>(
       Duration.zero,
       (sum, day) => sum + day.usageTime,
@@ -297,7 +274,6 @@ class AnalyticsService {
     );
   }
 
-  /// 빈 분석 데이터 생성
   static AnalyticsData _emptyAnalyticsData() => AnalyticsData(
         totalUsageTime: Duration.zero,
         speedUsageTime: {},
@@ -306,7 +282,7 @@ class AnalyticsService {
         dailyUsages: [],
       );
 
-  /// 테스트 데이터 생성 (개발용)
+  // test 위한 임시 데이터 생성
   static Future<void> generateTestData(String username) async {
     print('🧪 generateTestData 시작 - username: $username');
     final now = DateTime.now();
@@ -315,11 +291,9 @@ class AnalyticsService {
     final testFaceTrackingSessions = <FaceTrackingSession>[];
     final testSpeedCount = <int, int>{};
 
-    // 최근 7일간의 테스트 데이터 생성
     for (int i = 0; i < 7; i++) {
       final date = now.subtract(Duration(days: i));
 
-      // 각 날짜마다 2-4개의 선풍기 세션 생성
       final sessionCount = 2 + (i % 3);
       for (int j = 0; j < sessionCount; j++) {
         final startTime =
@@ -334,11 +308,9 @@ class AnalyticsService {
           speed: speed,
         ));
 
-        // 속도별 사용 횟수 증가
         testSpeedCount[speed] = (testSpeedCount[speed] ?? 0) + 1;
       }
 
-      // 수동 제어 데이터 생성 (각 날짜마다 5-15회)
       final controlCount = 5 + (i % 11);
       for (int k = 0; k < controlCount; k++) {
         final controlTime =
@@ -352,7 +324,6 @@ class AnalyticsService {
         ));
       }
 
-      // 얼굴 추적 세션 생성 (50% 확률로)
       if (i % 2 == 0) {
         final startTime = DateTime(date.year, date.month, date.day, 14, 0);
         final endTime = startTime.add(Duration(hours: 2, minutes: 30));
@@ -364,7 +335,6 @@ class AnalyticsService {
       }
     }
 
-    // 테스트 데이터로 사용자 분석 생성
     final testAnalytics = UserAnalytics(
       username: username,
       fanSessions: testSessions,
@@ -373,7 +343,6 @@ class AnalyticsService {
       speedUsageCount: testSpeedCount,
     );
 
-    // 기존 데이터에 추가
     print('💾 데이터 저장 시작...');
     final allAnalytics = await loadAllAnalytics();
     allAnalytics[username] = testAnalytics;
@@ -386,7 +355,6 @@ class AnalyticsService {
     print('   - 얼굴 추적: ${testFaceTrackingSessions.length}회');
   }
 
-  /// 일별 사용량 생성
   static DailyUsage _createDailyUsage(
       DateTime date, Duration usageTime, Map<int, Duration> speedBreakdown) {
     return DailyUsage(
