@@ -4,10 +4,47 @@ import '../models/user_analytics.dart';
 
 class AnalyticsService {
   static const String _analyticsKey = 'user_analytics';
+  static const String _testModeStatsKey = 'test_mode_stats';
+  static const String _testTimerStatsKey = 'test_timer_stats';
 
   static FanSession? _currentFanSession;
   static FaceTrackingSession? _currentFaceTrackingSession;
   static String? _currentUser;
+
+  // ✨ 테스트용 모드 통계 저장
+  static Future<void> saveTestModeStats(String username, Map<String, double> stats) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('${_testModeStatsKey}_$username', jsonEncode(stats));
+    print('💾 테스트 모드 통계 저장: $stats');
+  }
+
+  // ✨ 테스트용 모드 통계 로드
+  static Future<Map<String, double>> loadTestModeStats(String username) async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString('${_testModeStatsKey}_$username');
+    if (json == null) return {};
+
+    final Map<String, dynamic> data = jsonDecode(json);
+    return data.map((k, v) => MapEntry(k, (v as num).toDouble()));
+  }
+
+  // ✨ 테스트용 타이머 통계 저장
+  static Future<void> saveTestTimerStats(String username, int count, double totalMinutes) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('${_testTimerStatsKey}_$username', jsonEncode({
+      'count': count,
+      'total_minutes': totalMinutes,
+    }));
+    print('💾 테스트 타이머 통계 저장: $count회, ${totalMinutes}분');
+  }
+
+  // ✨ 테스트용 타이머 통계 로드
+  static Future<Map<String, dynamic>> loadTestTimerStats(String username) async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString('${_testTimerStatsKey}_$username');
+    if (json == null) return {'count': 0, 'total_minutes': 0.0};
+    return jsonDecode(json);
+  }
 
   static Future<Map<String, UserAnalytics>> loadAllAnalytics() async {
     final prefs = await SharedPreferences.getInstance();
@@ -17,9 +54,9 @@ class AnalyticsService {
 
     final Map<String, dynamic> data = jsonDecode(analyticsJson);
     return data.map((key, value) => MapEntry(
-          key,
-          UserAnalytics.fromJson(value as Map<String, dynamic>),
-        ));
+      key,
+      UserAnalytics.fromJson(value as Map<String, dynamic>),
+    ));
   }
 
   static Future<UserAnalytics?> getUserAnalytics(String username) async {
@@ -31,7 +68,7 @@ class AnalyticsService {
       Map<String, UserAnalytics> analytics) async {
     final prefs = await SharedPreferences.getInstance();
     final analyticsJson = jsonEncode(analytics.map(
-      (key, value) => MapEntry(key, value.toJson()),
+          (key, value) => MapEntry(key, value.toJson()),
     ));
     await prefs.setString(_analyticsKey, analyticsJson);
   }
@@ -57,7 +94,7 @@ class AnalyticsService {
 
     _currentFanSession = FanSession(
       startTime: DateTime.now(),
-      endTime: DateTime.now(), // 임시로 현재 시간 설정
+      endTime: DateTime.now(),
       speed: speed,
     );
   }
@@ -66,18 +103,15 @@ class AnalyticsService {
     await _endCurrentFanSession();
   }
 
-  /// 속도 변경
   static void onSpeedChanged(int newSpeed) {
     if (_currentUser == null) return;
 
     if (newSpeed > 0) {
-      // 속도가 있으면 세션 시작 또는 업데이트
       if (_currentFanSession == null) {
         onFanPowerOn(newSpeed).catchError((e) {
           print('❌ onFanPowerOn 오류: $e');
         });
       } else {
-        // 현재 세션의 속도 업데이트
         _currentFanSession = FanSession(
           startTime: _currentFanSession!.startTime,
           endTime: DateTime.now(),
@@ -85,14 +119,12 @@ class AnalyticsService {
         );
       }
     } else {
-      // 속도가 0이면 세션 종료
       onFanPowerOff().catchError((e) {
         print('❌ onFanPowerOff 오류: $e');
       });
     }
   }
 
-  /// 수동 제어 기록
   static void onManualControl(String direction, int? speed) {
     if (_currentUser == null) return;
 
@@ -102,7 +134,6 @@ class AnalyticsService {
       speed: speed,
     );
 
-    // 비동기로 처리하되 결과를 기다리지 않음
     getUserAnalytics(_currentUser!).then((analytics) {
       final userAnalytics = analytics ?? UserAnalytics(username: _currentUser!);
       final updatedAnalytics = userAnalytics.copyWith(
@@ -114,7 +145,6 @@ class AnalyticsService {
     });
   }
 
-  /// 얼굴 추적 시작
   static void onFaceTrackingStart() {
     if (_currentUser == null) return;
 
@@ -128,14 +158,12 @@ class AnalyticsService {
     );
   }
 
-  /// 얼굴 추적 종료
   static void onFaceTrackingStop() {
     _endCurrentFaceTrackingSession().catchError((e) {
       print('❌ _endCurrentFaceTrackingSession 오류: $e');
     });
   }
 
-  /// 현재 팬 세션 종료
   static Future<void> _endCurrentFanSession() async {
     if (_currentUser == null || _currentFanSession == null) return;
 
@@ -200,7 +228,7 @@ class AnalyticsService {
 
     final totalUsageTime = daySessions.fold<Duration>(
       Duration.zero,
-      (sum, session) => sum + session.duration,
+          (sum, session) => sum + session.duration,
     );
 
     final speedUsageTime = <int, Duration>{};
@@ -244,7 +272,7 @@ class AnalyticsService {
 
     final totalUsageTime = dailyUsages.fold<Duration>(
       Duration.zero,
-      (sum, day) => sum + day.usageTime,
+          (sum, day) => sum + day.usageTime,
     );
 
     final speedUsageTime = <int, Duration>{};
@@ -275,14 +303,14 @@ class AnalyticsService {
   }
 
   static AnalyticsData _emptyAnalyticsData() => AnalyticsData(
-        totalUsageTime: Duration.zero,
-        speedUsageTime: {},
-        manualControlCount: 0,
-        faceTrackingTime: Duration.zero,
-        dailyUsages: [],
-      );
+    totalUsageTime: Duration.zero,
+    speedUsageTime: {},
+    manualControlCount: 0,
+    faceTrackingTime: Duration.zero,
+    dailyUsages: [],
+  );
 
-  // test 위한 임시 데이터 생성
+  // ✨ 테스트 데이터 생성 - 모든 모드별 데이터 포함
   static Future<void> generateTestData(String username) async {
     print('🧪 generateTestData 시작 - username: $username');
     final now = DateTime.now();
@@ -291,16 +319,26 @@ class AnalyticsService {
     final testFaceTrackingSessions = <FaceTrackingSession>[];
     final testSpeedCount = <int, int>{};
 
+    // 최근 7일간 데이터 생성
     for (int i = 0; i < 7; i++) {
       final date = now.subtract(Duration(days: i));
+      final sessionCount = 6 + (i % 5);
 
-      final sessionCount = 2 + (i % 3);
       for (int j = 0; j < sessionCount; j++) {
-        final startTime =
-            DateTime(date.year, date.month, date.day, 9 + j * 3, 0);
-        final endTime =
-            startTime.add(Duration(hours: 1 + (j % 3), minutes: 30));
-        final speed = 1 + (j % 5); // 1-5단계 랜덤
+        final startTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          9 + (j * 2),
+          (j * 15) % 60,
+        );
+
+        final durationHours = 0 + (j % 3);
+        final durationMinutes = 30 + (j * 10) % 60;
+        final endTime = startTime.add(
+            Duration(hours: durationHours, minutes: durationMinutes));
+
+        final speed = 1 + (j % 5);
 
         testSessions.add(FanSession(
           startTime: startTime,
@@ -312,10 +350,16 @@ class AnalyticsService {
       }
 
       final controlCount = 5 + (i % 11);
+      final directions = ['up', 'down', 'left', 'right', 'center'];
+
       for (int k = 0; k < controlCount; k++) {
-        final controlTime =
-            DateTime(date.year, date.month, date.day, 10 + k, 0);
-        final directions = ['up', 'down', 'left', 'right', 'center'];
+        final controlTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          10 + (k % 12),
+          (k * 7) % 60,
+        );
 
         testManualControls.add(ManualControl(
           timestamp: controlTime,
@@ -325,13 +369,23 @@ class AnalyticsService {
       }
 
       if (i % 2 == 0) {
-        final startTime = DateTime(date.year, date.month, date.day, 14, 0);
-        final endTime = startTime.add(Duration(hours: 2, minutes: 30));
+        final trackingCount = 1 + (i % 3);
+        for (int t = 0; t < trackingCount; t++) {
+          final startTime = DateTime(
+            date.year,
+            date.month,
+            date.day,
+            13 + (t * 3),
+            0,
+          );
+          final endTime = startTime.add(
+              Duration(hours: 1 + (t % 2), minutes: 20 + (t * 10)));
 
-        testFaceTrackingSessions.add(FaceTrackingSession(
-          startTime: startTime,
-          endTime: endTime,
-        ));
+          testFaceTrackingSessions.add(FaceTrackingSession(
+            startTime: startTime,
+            endTime: endTime,
+          ));
+        }
       }
     }
 
@@ -347,41 +401,54 @@ class AnalyticsService {
     final allAnalytics = await loadAllAnalytics();
     allAnalytics[username] = testAnalytics;
     await saveAnalytics(allAnalytics);
-    print('💾 데이터 저장 완료');
 
-    print('🧪 테스트 데이터 생성 완료: $username');
+    // ✨ 모드별 & 타이머 테스트 데이터 생성
+    final modeStats = {
+      'natural_wind': 65.0 + (username.length % 20).toDouble(),
+      'ai_tracking': 150.0 + (username.length % 30).toDouble(),
+      'rotation': 95.0 + (username.length % 25).toDouble(),
+      'manual_control': 75.0 + (username.length % 15).toDouble(),
+    };
+    await saveTestModeStats(username, modeStats);
+
+    final timerCount = 8 + (username.length % 7);
+    final timerTotalMinutes = 240.0 + (username.length % 120).toDouble();
+    await saveTestTimerStats(username, timerCount, timerTotalMinutes);
+
+    print('💾 데이터 저장 완료');
+    print('✅ 테스트 데이터 생성 완료: $username');
     print('   - 선풍기 세션: ${testSessions.length}개');
     print('   - 수동 제어: ${testManualControls.length}회');
     print('   - 얼굴 추적: ${testFaceTrackingSessions.length}회');
+    print('   - 속도별 사용: $testSpeedCount');
+    print('   - 모드별 사용: $modeStats');
+    print('   - 타이머: ${timerCount}회, ${timerTotalMinutes}분');
   }
 
-  /// 간단한 이름의 래퍼: UI에서 호출하는 `seedAnalyticsForUser`가 없을 경우 대비
   static Future<void> seedAnalyticsForUser(String username) async {
-    // For now use the richer generator; keep wrapper for API stability
     await generateTestData(username);
   }
 
-  /// Generate simple, human-readable insights for a given user.
-  /// Returns a list of short Korean sentences describing behavior.
-  static Future<List<String>> generateInsights(String username, {bool weekly = false}) async {
+  static Future<List<String>> generateInsights(String username,
+      {bool weekly = false}) async {
     final analytics = await getUserAnalytics(username);
-    if (analytics == null) return ['데이터가 없습니다. 먼저 샘플 데이터를 시드하거나 사용 기록이 있어야 합니다.'];
+    if (analytics == null)
+      return ['데이터가 없습니다. 먼저 샘플 데이터를 시드하거나 사용 기록이 있어야 합니다.'];
 
     final now = DateTime.now();
     DateTime? periodStart;
     DateTime? periodEnd;
     if (weekly) {
-      // align to week start (Monday)
       final weekStart = now.subtract(Duration(days: now.weekday - 1));
       periodStart = DateTime(weekStart.year, weekStart.month, weekStart.day);
       periodEnd = periodStart.add(const Duration(days: 7));
     } else {
-      // single day (today)
       periodStart = DateTime(now.year, now.month, now.day);
       periodEnd = periodStart.add(const Duration(days: 1));
     }
 
-    bool inPeriod(DateTime t) => !t.isBefore(periodStart!) && t.isBefore(periodEnd!);
+    bool inPeriod(DateTime t) =>
+        !t.isBefore(periodStart!) && t.isBefore(periodEnd!);
 
     final hourCounts = <int, int>{};
     final manualHourCounts = <int, int>{};
@@ -393,12 +460,11 @@ class AnalyticsService {
       map[hour] = (map[hour] ?? 0) + 1;
     }
 
-    // Fan sessions: consider sessions whose startTime is inside period
     for (final s in analytics.fanSessions) {
       if (!inPeriod(s.startTime)) continue;
       final start = s.startTime;
       final end = s.endTime.isBefore(periodEnd) ? s.endTime : periodEnd;
-      for (var hour = start.hour; ; hour = (hour + 1) % 24) {
+      for (var hour = start.hour;; hour = (hour + 1) % 24) {
         addHourCount(hourCounts, hour);
         if (hour == end.hour) break;
       }
@@ -409,7 +475,8 @@ class AnalyticsService {
       if (!inPeriod(c.timestamp)) continue;
       addHourCount(manualHourCounts, c.timestamp.hour);
       directionCounts[c.direction] = (directionCounts[c.direction] ?? 0) + 1;
-      if (c.speed != null) speedCounts[c.speed!] = (speedCounts[c.speed!] ?? 0) + 1;
+      if (c.speed != null)
+        speedCounts[c.speed!] = (speedCounts[c.speed!] ?? 0) + 1;
     }
 
     for (final f in analytics.faceTrackingSessions) {
@@ -438,7 +505,8 @@ class AnalyticsService {
     final topManualHour = _topHour(manualHourCounts);
     final topDirection = _topKey(directionCounts);
     if (topManualHour != null && topDirection != null) {
-      sentences.add('$periodLabel ${topManualHour}시에 수동으로 조작하는 경우가 많고, 주로 "$topDirection" 방향을 사용했어요.');
+      sentences.add(
+          '$periodLabel ${topManualHour}시에 수동으로 조작하는 경우가 많고, 주로 "$topDirection" 방향을 사용했어요.');
     } else if (topManualHour != null) {
       sentences.add('$periodLabel ${topManualHour}시에 수동 조작이 많이 발생했네요.');
     }
